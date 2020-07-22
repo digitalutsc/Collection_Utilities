@@ -1,8 +1,7 @@
 import pandas as pd
 import os
 import re
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+
 import networkx as nx
 from datetime import datetime
 from docx import Document
@@ -69,7 +68,7 @@ modelCSVNamesToNames = {"info:fedora/islandora:sp_large_image_cmodel": "Large Im
 regex = r"^.*day, (.*) [0-9]*, (.*) - [0-2][0-9]:[0-5][0-9]$"
 
 #Orphans
-orphanPIDs = []
+"""orphanPIDs = []
 for index, row in df.iterrows():
     isConceptual = pd.isna(row["isPageOf"]) and pd.isna(row["isConstituentOf"])
     # Check if the PID is an orphan
@@ -82,7 +81,7 @@ for index, row in df.iterrows():
         if not general_helpers.DoesPIDExist(df, parentPID):
             #print(row["PID"], parentPID)
             orphanPIDs.append(row["PID"])
-
+"""
 # Constructs the tree and adds missing collection
 errorMsg = " - Error in file format"
 tree = tree_visualizer.ConstructTreeDict(df, collectionCSVNamesToName)
@@ -196,8 +195,8 @@ for key, collName in collectionCSVNamesToName.items():
                 collectionsToChecksumDict[collName]+=1
 # Convert to the actual size units
 for key, value in totalSizeDict.items():
-    totalSizeDict[key] = convert_size(value)
-totalSize = convert_size(totalSize)
+    totalSizeDict[key] = general_helpers.convert_size(value)
+totalSize = general_helpers.convert_size(totalSize)
 print(totalSize)
 
 document = Document()
@@ -206,35 +205,35 @@ font = style.font
 font.size = Pt(15)
 # Generate date plot
 sort = sorted(dateDict.items(), key=lambda x: datetime.strptime(x[0], "%B %Y"))
-GenerateTitle(document,"Relation between the objects and the date","Graph 1",
+document_helpers.GenerateTitle(document,"Relation between the objects and the date","Graph 1",
               "This graph shows the number of digital objects entering the repository over time")
 
-GenerateBarPlot(list(zip(*sort))[0],list(zip(*sort))[1], "datePlot.png", "Dependence of Conceptual Objects on the dates")
+document_helpers.GenerateBarPlot(list(zip(*sort))[0],list(zip(*sort))[1], "datePlot.png", "Dependence of Conceptual Objects on the dates")
 document.add_picture('datePlot.png', width = Mm(150))
 document.add_page_break()
 # Generate total objects
-GenerateTitle(document, "Relation between the objects and the date","Graph 2",
+document_helpers.GenerateTitle(document, "Relation between the objects and the date","Graph 2",
               "This graph shows the number of digital objects entering the repository over time")
 totalValues = []
 total = 0
 for tpl in sort:
     total+=tpl[1]
     totalValues.append(total)
-GenerateLinePlot(list(zip(*sort))[0],totalValues,"cumulativePlot.png","Dependence of Total Number of Conceptual Objects on the dates")
+document_helpers.GenerateLinePlot(list(zip(*sort))[0],totalValues,"cumulativePlot.png","Dependence of Total Number of Conceptual Objects on the dates")
 document.add_picture("cumulativePlot.png", width = Mm(150))
 
 # Generate content model chart
 document.add_page_break()
-GenerateTitle(document, "Number of objects for each content model","Table 1",
+document_helpers.GenerateTitle(document, "Number of objects for each content model","Table 1",
               "This chart shows the number of objects per Islandora content model in the repository")
 table = document.add_table(rows=len(cmodelsDict)+2, cols=2)
-GenerateTable("Content Models", "Digital Objects", cmodelsDict, table)
+document_helpers.GenerateTable("Content Models", "Digital Objects", cmodelsDict, table)
 row = table.rows[-1]
 row.cells[0].paragraphs[0].add_run("Total").bold = True
 row.cells[1].paragraphs[0].add_run(str(sum(cmodelsDict.values()))).bold = True
 document.add_page_break()
 # Generate collection chart
-GenerateTitle(document, "Number of objects and checksums for each collection","Table 2",
+document_helpers.GenerateTitle(document, "Number of objects and checksums for each collection","Table 2",
               "This chart shows the checksums per collection, and indicates if all are valid")
 table = document.add_table(rows=len(collectionsDict)+2, cols=5)
 table.style = 'Table Grid'
@@ -262,7 +261,7 @@ row.cells[3].paragraphs[0].add_run(str(totalOBJCollections)).bold = True
 row.cells[4].paragraphs[0].add_run(str(numChecksum)).bold = True
 document.add_page_break()
 #AIP Table
-document_helper.GenerateTitle(document, "Number of objects with AIPs for each collection","Table 3",
+document_helpers.GenerateTitle(document, "Number of objects with AIPs for each collection","Table 3",
               "This chart shows the AIPs per collection, and indicates if all are valid")
 table = document.add_table(rows=len(collectionsDict)+2, cols=4)
 table.style = 'Table Grid'
@@ -302,7 +301,7 @@ document.add_page_break()
 # Generate collection by file type chart
 leavesOnly = tree_visualizer.GetNodesWithNoChildren(tree)
 leavesCollectionsToFileTypesDict = {key: collectionsToFileTypesDict[key] for key in leavesOnly}
-document_helper.GenerateTitle(document,"File Types for each collection","Table 5")
+document_helpers.GenerateTitle(document,"File Types for each collection","Table 5")
 table = document.add_table(rows=len(leavesCollectionsToFileTypesDict)+1, cols=2)
 table.style = 'Table Grid'
 i = 1
@@ -320,7 +319,7 @@ for key, value in sorted(leavesCollectionsToFileTypesDict.items()):
 document.add_page_break()
 current_section = document.sections[-1]
 new_width, new_height = current_section.page_height, current_section.page_width
-document_helper.GenerateTitle(document,"Collection Tree","Graph 3",)
+document_helpers.GenerateTitle(document,"Collection Tree","Graph 3",)
 tree_visualizer.CreateTree(tree)
 document.add_picture('treeTestTranspose.png', width = Mm(150))
 document.save('ReportSummary.docx')

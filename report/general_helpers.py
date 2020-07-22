@@ -5,6 +5,7 @@ import re
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import networkx as nx
+import math
 def DoesPIDExist(df, colValue):
     if len(df[df["PID"]==colValue].index.values) > 0:
         return True
@@ -39,7 +40,7 @@ def GetMembers(df, df_collection_members, collection, b_include_pages):
         cmodel = row["cmodel"]
         is_member_of_collection = row["isMemberOfCollection"]
         if cmodel == "info:fedora/islandora:bookCModel":
-            df_collection_members = get_members(df, df_collection_members, "info:fedora/"+pid, b_include_pages)
+            df_collection_members = GetMembers(df, df_collection_members, "info:fedora/"+pid, b_include_pages)
         
     df_collection_members = df_collection_members.append(member_list,ignore_index=True)
     return df_collection_members
@@ -66,8 +67,8 @@ def GetSizeForCollection(df):
     df_datastreams_report['size'] = df_datastreams_report['size'].apply(lambda x: x.strip())
     df_datastreams_report['size'].replace("not_set", '0', inplace=True)
     df_datastreams_report["size"].fillna(0, inplace = True) 
-    df_datastreams_report = df_datastreams_report.astype({"size": int})
-    df_datastreams_report = df_datastreams_report.astype({"num_versions": int})
+    df_datastreams_report = df_datastreams_report.astype({"size": np.int64})
+    df_datastreams_report = df_datastreams_report.astype({"num_versions": np.int64})
     df_datastreams_report['total_size'] = df_datastreams_report['size'] * df_datastreams_report['num_versions']
     #print(df_datastreams_report.groupby(["isMemberOfCollection"])['total_size'].agg('sum').values[0])
     return df_datastreams_report['total_size'].sum()
