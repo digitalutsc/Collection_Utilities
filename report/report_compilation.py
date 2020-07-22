@@ -68,7 +68,8 @@ modelCSVNamesToNames = {"info:fedora/islandora:sp_large_image_cmodel": "Large Im
 #Date
 regex = r"^.*day, (.*) [0-9]*, (.*) - [0-2][0-9]:[0-5][0-9]$"
 
-"""orphanPIDs = []
+#Orphans
+orphanPIDs = []
 for index, row in df.iterrows():
     isConceptual = pd.isna(row["isPageOf"]) and pd.isna(row["isConstituentOf"])
     # Check if the PID is an orphan
@@ -81,7 +82,7 @@ for index, row in df.iterrows():
         if not general_helpers.DoesPIDExist(df, parentPID):
             #print(row["PID"], parentPID)
             orphanPIDs.append(row["PID"])
-"""
+
 # Constructs the tree and adds missing collection
 errorMsg = " - Error in file format"
 tree = tree_visualizer.ConstructTreeDict(df, collectionCSVNamesToName)
