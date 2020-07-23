@@ -1,16 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import pandas as pd
 import os
 import re
-
-
-# In[2]:
-
 
 #Global variables
 image_pid_column_name = 'mods_URI_PID'
@@ -20,10 +13,6 @@ images_source_dir = ""
 images_target_dir = ""
 metadata_file = "data/metadata.csv"
 
-
-# In[3]:
-
-
 # Lookup a column value by another column name and value in a dataframe
 def lookup_df_value_column_value(df, key_col, key_val, val_col, idx=0):
     try:
@@ -32,10 +21,6 @@ def lookup_df_value_column_value(df, key_col, key_val, val_col, idx=0):
         return value
     except IndexError:
         return 0
-
-
-# In[4]:
-
 
 def rotate_image(image_filename, pid, metadata_df):
     # Get the photoservice number and search for it in the 
@@ -53,10 +38,6 @@ def rotate_image(image_filename, pid, metadata_df):
          degree = '-'+degree
     
     os.system('convert -rotate '+degree+' '+images_source_dir+image_filename+' '+images_target_dir + "/"+image_filename)
-
-
-# In[5]:
-
 
 def main():
     # read the metadata
@@ -76,21 +57,5 @@ def main():
     print("Completed rotating images from " + images_source_dir)
 
 
-# In[ ]:
-
-
 if __name__ == '__main__':
     main()
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
