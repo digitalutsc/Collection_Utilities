@@ -1,0 +1,33 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <path_to_data_directory>"
+    exit 1
+fi
+
+data_directory="$1"
+
+# Loop over each zip file in the "data" directory and run the command
+for zip_file in "$data_directory"/*.zip; do
+    # Check if the zip file name matches the expected format using regular expression
+    if [[ "$zip_file" =~ /([A-Za-z0-9]+)_([0-9]+)_foxml_atomzip\.zip$ ]]; then
+        # Extract the collection name and PID from the zip file name using BASH_REMATCH array
+        collection_name="${BASH_REMATCH[1]}"
+        pid="${BASH_REMATCH[2]}"
+        
+        # Construct the drush command to create the islandora bag
+        drush_command="drush @dsu --user=1 create-islandora-bag object ${collection_name}:${pid}"
+        
+        # Print the drush command that would be executed (commented out by default)
+        echo "Running command: $drush_command"
+        
+        # Uncomment the following line to execute the drush command
+        # $drush_command
+    else
+        # Warn if the zip file name does not match the expected format
+        echo "Warning: Skipping invalid zip file name: $zip_file"
+    fi
+done
+
+# Print completion message
+echo "Script completed."
