@@ -4,14 +4,14 @@ import xml.etree.ElementTree as ET
 import sys
 from colorama import Fore
 import zipfile
-from rich.progress import track, Text, Progress
+from rich.progress import track
 import os
 import re
 import subprocess
-import shutil
 import uuid
-from os import listdir, path, walk
 from io import BytesIO
+import tempfile
+import csv
 
 
 
@@ -39,24 +39,23 @@ def parse_arguments(arguments: list[str]) -> str:
         return arguments[1]
     
 def create_uniquely_named_directory() -> str:
-    """
-    Creates a uniquely-named directory in the current working directory and returns its path
-    """
-    # Get the current working directory
-    cwd = os.getcwd()
+    """ Creates a uniquely-named directory in the system's temp directory and returns its path. """
+
+    # Get the system's temporary directory location
+    temp_dir = tempfile.gettempdir()
 
     # Generate a unique directory name using UUID
     unique_name = "dir_" + str(uuid.uuid4())
 
-    # Combine the cwd and unique_name to get the full path of the new directory
-    new_directory_path = os.path.join(cwd, unique_name)
+    # Combine the temp_dir and unique_name to get the full path of the new directory
+    new_directory_path = os.path.join(temp_dir, unique_name)
 
     # Create the directory if it doesn't exist
-    os.makedirs(new_directory_path)
+    os.makedirs(new_directory_path, exist_ok=True)
 
     return new_directory_path
     
-def format_drush_command(zip_path: str) -> str:
+def format_drush_command_from_atomzip(zip_path: str) -> str:
     """Return 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID', where <zip_path> is of the form .../COLLECTION_PID_foxml_atomzip.zip"""
 
     # Extract the COLLECTIONNAME:PID from the zip_path
@@ -73,7 +72,7 @@ def format_drush_command(zip_path: str) -> str:
     return f"drush @dsu --user=1 create-islandora-bag object {collection_name}:{pid}"
 
 
-def extract_bag_path(stdout_bytes: bytes) -> str:
+def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> str:
     """Given <stdout_bytes> from the 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID' command, return the path of the newly created ZIP file."""
     # Decode the stdout bytes to a string
     stdout = stdout_bytes.decode('utf-8')
@@ -184,6 +183,7 @@ def get_bag_name_from_atomzip(atomzip_path: str) -> str:
     """ Given an <atomzip_path>, return the name of the bag contained in the atomzip name. """
     return os.path.basename(atomzip_path).replace('_foxml_atomzip.zip', '')
 
+bag_name_and_new_foxml = []
 
 # Parse command line arguments and extract the path of the input zip file
 input_dir = parse_arguments(sys.argv)
@@ -191,6 +191,9 @@ input_dir = parse_arguments(sys.argv)
 # Create the directory which will store the FOXML files
 return_directory = create_uniquely_named_directory()
 
+
+print(Fore.GREEN, f"Conversion has started. The output directory is {return_directory}")
+print(Fore.GREEN, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
 for input_zip in track(os.listdir(input_dir), "Processing XML..."):
     if not os.path.basename(input_zip).endswith('.zip'):
@@ -210,9 +213,9 @@ for input_zip in track(os.listdir(input_dir), "Processing XML..."):
                     foxml_root = get_XML_tree_zip_file('foxml.xml', zip_archive)
                 else:
                     # Execute the Drush command to add a FOXML file to this ZIP file
-                    result = subprocess.run(format_drush_command(name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    result = subprocess.run(format_drush_command_from_atomzip(name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                     # Extract the path of the newly created ZIP file (by the Drush command), which will contain the FOXML file in it
-                    bag_path = extract_bag_path(result.stdout)
+                    bag_path = extract_bag_path_from_drush_command_stdout(result.stdout)
                     if not bag_path:
                         print(Fore.RED, f"Drush command failed for {name}. Skipping this bag.", Fore.RESET)
                         continue
@@ -221,6 +224,7 @@ for input_zip in track(os.listdir(input_dir), "Processing XML..."):
 
                 if is_foxml_managed(foxml_root):
                     managed_to_inline(foxml_root, zip_archive)
+                    print(Fore.GREEN, f'{bag_name} contains a managed FOXML file. Converting...', Fore.RESET)
                 foxml_save_directory = os.path.join(output_directory, bag_name)
                 os.makedirs(foxml_save_directory)
                 # Register the namespaces to preserve the original prefixes
@@ -228,7 +232,18 @@ for input_zip in track(os.listdir(input_dir), "Processing XML..."):
                 ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
                 # Ensure that the original namespace prefix is used in the output file
                 ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
-                ET.ElementTree(foxml_root).write(f'{foxml_save_directory}/foxml.xml', encoding="utf-8", xml_declaration=True)
+                converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
+                ET.ElementTree(foxml_root).write(converted_foxml_path, encoding="utf-8", xml_declaration=True)
+                bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
+
+with open(f'{return_directory}/map.csv', 'w', newline='') as map:
+    writer = csv.writer(map)
+
+    # Write the column names to the CSV file
+    writer.writerow(['bag_name','converted_foxml_path'])
+
+    # Write the accumulated data to the CSV file in bulk
+    writer.writerows(bag_name_and_new_foxml)
                 
 
             
