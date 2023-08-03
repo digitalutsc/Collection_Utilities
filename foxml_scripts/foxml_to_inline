@@ -212,14 +212,15 @@ with zipfile.ZipFile(input_zip, 'r') as zip_archive:
 
             if is_foxml_managed(foxml_root):
                 managed_to_inline(foxml_root, zip_archive)
-                foxml_save_directory = os.path.join(output_directory, bag_name)
-                os.makedirs(foxml_save_directory)
-                # Register the namespaces to preserve the original prefixes
-                ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
-                ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
-                # Ensure that the original namespace prefix is used in the output file
-                ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
-                ET.ElementTree(foxml_root).write(f'{foxml_save_directory}/foxml.xml', encoding="utf-8", xml_declaration=True)
+            foxml_save_directory = os.path.join(output_directory, bag_name)
+            os.makedirs(foxml_save_directory)
+            # Register the namespaces to preserve the original prefixes
+            ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
+            ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+            # Ensure that the original namespace prefix is used in the output file
+            ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
+            ET.ElementTree(foxml_root).write(f'{foxml_save_directory}/foxml.xml', encoding="utf-8", xml_declaration=True)
+                
 
             
 
