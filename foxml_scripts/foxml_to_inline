@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 import sys
 from colorama import Fore
 import zipfile
-from rich.progress import track
+from rich.progress import track, Text, Progress
 import os
 import re
 import subprocess
@@ -113,7 +113,10 @@ def get_XML_tree_zip_file(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
                 # Read the content of the XML file from the ZipExtFile object
                 xml_content = zip_ref.read(name)
                 # Convert the bytes content to a string and parse it with ElementTree
-                return ET.fromstring(xml_content.decode('utf-8'))
+                try:
+                    return ET.fromstring(xml_content.decode('utf-8'))
+                except:
+                    return ET.fromstring(re.sub(r"(<\?xml[^>]+\?>)", r"\1<root>", xml_content.decode('utf-8')) + "</root>")
     return None
     
 
@@ -183,43 +186,49 @@ def get_bag_name_from_atomzip(atomzip_path: str) -> str:
 
 
 # Parse command line arguments and extract the path of the input zip file
-input_zip = parse_arguments(sys.argv)
+input_dir = parse_arguments(sys.argv)
 
 # Create the directory which will store the FOXML files
-output_directory = create_uniquely_named_directory()
+return_directory = create_uniquely_named_directory()
 
-found_first_atomzip = False
-with zipfile.ZipFile(input_zip, 'r') as zip_archive:
-    for name in track(zip_archive.namelist(), "Converting XML..."):
-        # Check if the file matches the desired pattern (inside data directory and ends with _foxml_atomzip.zip)
-        if 'data/' in name and name.endswith('_foxml_atomzip.zip'):
-            bag_name = get_bag_name_from_atomzip(name)
 
-            # We do not need to run any Drush command for the first atomzip to get the FOXML, as the foxml file is already in the given ZIP
-            if not found_first_atomzip:
-                found_first_atomzip = True
-                foxml_root = get_XML_tree_zip_file('foxml.xml', zip_archive)
-            else:
-                # Execute the Drush command to add a FOXML file to this ZIP file
-                result = subprocess.run(format_drush_command(name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                # Extract the path of the newly created ZIP file (by the Drush command), which will contain the FOXML file in it
-                bag_path = extract_bag_path(result.stdout)
-                if not bag_path:
-                    print(Fore.RED, f"Drush command failed for {name}. Skipping this bag.", Fore.RESET)
-                    continue
-                with zipfile.ZipFile(bag_path, 'r') as bag_archive:
-                    foxml_root = get_XML_tree_zip_file('foxml.xml', bag_archive)
+for input_zip in track(os.listdir(input_dir), "Processing XML..."):
+    if not os.path.basename(input_zip).endswith('.zip'):
+        continue
+    output_directory = f'{return_directory}/{os.path.basename(input_zip).replace(".zip", "")}'
+    os.makedirs(output_directory)
+    found_first_atomzip = False
+    with zipfile.ZipFile(f'{input_dir}/{input_zip}', 'r') as zip_archive:
+        for name in zip_archive.namelist():
+            # Check if the file matches the desired pattern (inside data directory and ends with _foxml_atomzip.zip)
+            if 'data/' in name and name.endswith('_foxml_atomzip.zip'):
+                bag_name = get_bag_name_from_atomzip(name)
 
-            if is_foxml_managed(foxml_root):
-                managed_to_inline(foxml_root, zip_archive)
-            foxml_save_directory = os.path.join(output_directory, bag_name)
-            os.makedirs(foxml_save_directory)
-            # Register the namespaces to preserve the original prefixes
-            ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
-            ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
-            # Ensure that the original namespace prefix is used in the output file
-            ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
-            ET.ElementTree(foxml_root).write(f'{foxml_save_directory}/foxml.xml', encoding="utf-8", xml_declaration=True)
+                # We do not need to run any Drush command for the first atomzip to get the FOXML, as the foxml file is already in the given ZIP
+                if not found_first_atomzip and name not in input_zip:
+                    found_first_atomzip = True
+                    foxml_root = get_XML_tree_zip_file('foxml.xml', zip_archive)
+                else:
+                    # Execute the Drush command to add a FOXML file to this ZIP file
+                    result = subprocess.run(format_drush_command(name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    # Extract the path of the newly created ZIP file (by the Drush command), which will contain the FOXML file in it
+                    bag_path = extract_bag_path(result.stdout)
+                    if not bag_path:
+                        print(Fore.RED, f"Drush command failed for {name}. Skipping this bag.", Fore.RESET)
+                        continue
+                    with zipfile.ZipFile(bag_path, 'r') as bag_archive:
+                        foxml_root = get_XML_tree_zip_file('foxml.xml', bag_archive)
+
+                if is_foxml_managed(foxml_root):
+                    managed_to_inline(foxml_root, zip_archive)
+                foxml_save_directory = os.path.join(output_directory, bag_name)
+                os.makedirs(foxml_save_directory)
+                # Register the namespaces to preserve the original prefixes
+                ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
+                ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+                # Ensure that the original namespace prefix is used in the output file
+                ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
+                ET.ElementTree(foxml_root).write(f'{foxml_save_directory}/foxml.xml', encoding="utf-8", xml_declaration=True)
                 
 
             
