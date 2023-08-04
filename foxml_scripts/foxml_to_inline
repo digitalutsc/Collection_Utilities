@@ -13,7 +13,9 @@ from io import BytesIO
 import tempfile
 import csv
 from xml.dom import minidom
-
+import concurrent.futures
+from rich.progress import Progress, TimeElapsedColumn
+import time
 
 
 
@@ -121,7 +123,7 @@ def get_XML_tree_zip_file(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
                 xml_content = zip_ref.read(name)
                 # Convert the bytes content to a string and parse it with ElementTree
                 try:
-                    return ET.fromstring(xml_content.decode('utf-8'))
+                    return ET.fromstring(xml_content.decode())
                 except ET.ParseError as e:
                     error_message = str(e)
                     if 'junk after document element' in error_message:
@@ -194,13 +196,23 @@ def get_bag_name_from_atomzip(atomzip_path: str) -> str:
     return os.path.basename(atomzip_path).replace('_foxml_atomzip.zip', '')
 
 def setup_namespaces() -> None:
-    """ Setup ET for FOXML namespaces. """
-    # Register the namespaces to preserve the original prefixes
-    ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
-    ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
-    ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
+    """Setup ET for FOXML namespaces."""
+    # Attempt to register each prefix individually
+    for prefix, uri in FOXML_NAMESPACES.items():
+        try:
+            ET.register_namespace(prefix, uri)
+        except ValueError:
+            continue
+    # Manually set 'foxml' prefix mapping
+    ET._namespace_map[FOXML_NAMESPACES['foxml']] = 'foxml'
+    ET.register_namespace('audit', FOXML_NAMESPACES['ns2'])
+    ET.register_namespace('fedora', FOXML_NAMESPACES['ns4'])
+    ET.register_namespace('fedora-model', FOXML_NAMESPACES['ns5'])
+    ET.register_namespace('islandora', FOXML_NAMESPACES['ns6'])
+    ET.register_namespace('oai_dc', FOXML_NAMESPACES['ns7'])
+    ET.register_namespace('Policy', FOXML_NAMESPACES['ns9'])
 
-def process_container_zip(input_zip: str) -> None:
+def process_container_zip(input_zip: str, bag_name_and_new_foxml: list[str, str]) -> None:
     # Generate the name of and create the directory which the FOXML files for this container will be written to
     output_directory = f'{return_directory}/{os.path.basename(input_zip).replace(".zip", "")}'
     os.makedirs(output_directory)
@@ -257,11 +269,9 @@ def process_container_zip(input_zip: str) -> None:
                     if process.returncode == 0:
                         formatted_xml_string = stdout
 
-                except subprocess.TimeoutExpired:
-                    print("Process took too long to execute.")
                 except Exception as e:
-                    print("An error occurred:", str(e))
-                bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
+                    print(Fore.RED, f'Unable to beautify FOXML for {bag_name}:', str(e))
+
 
                 # Create the directory where the new FOXML for this bag will be saved
                 foxml_save_directory = os.path.join(output_directory, bag_name)
@@ -271,23 +281,37 @@ def process_container_zip(input_zip: str) -> None:
                 # Write the formatted XML string to the file
                 with open(converted_foxml_path, 'w') as converted_foxml_file:
                     converted_foxml_file.write(formatted_xml_string)
+                
+                # Document the mapping of the bag name to the converted FOXML path
+                bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
+
+def run(zip_files: list[str], bag_name_and_new_foxml: list[str, str]) -> None:
+    total = len(zip_files)
+    progress = Progress("[progress.description]{task.description}", TimeElapsedColumn(), "[progress.percentage]{task.percentage:>3.0f}%", "[progress.bar]{task.completed}/{task.total}")
+
+    with progress:
+        task = progress.add_task("[cyan]Processing...", total=total)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = [executor.submit(process_container_zip, input_zip, bag_name_and_new_foxml) for input_zip in zip_files]
+
+            for future in concurrent.futures.as_completed(futures):
+                progress.advance(task)
 
 
+start_time = time.time()
+# This list will contain as its first element the name of a bag and as its second element the path to the converted FOXML file
 bag_name_and_new_foxml = []
-
 # Parse command line arguments and extract the path of the input zip file
 input_dir = parse_arguments(sys.argv)
-
 # Create the directory which will store the FOXML files
 return_directory = create_uniquely_named_directory()
 
-
 print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
 print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
-
-for input_zip in track(os.listdir(input_dir), "Processing XML..."):
-    if os.path.basename(input_zip).endswith('.zip'):
-        process_container_zip(input_zip)
+setup_namespaces()
+zip_files = [zip_file for zip_file in os.listdir(input_dir) if zip_file.endswith('.zip')]
+run(zip_files, bag_name_and_new_foxml)
 
 with open(f'{return_directory}/map.csv', 'w', newline='') as map:
     writer = csv.writer(map)
@@ -297,7 +321,8 @@ with open(f'{return_directory}/map.csv', 'w', newline='') as map:
 
     # Write the accumulated data to the CSV file in bulk
     writer.writerows(bag_name_and_new_foxml)
-                
+end_time = time.time()
+execution_time = end_time - start_time
 
             
 
