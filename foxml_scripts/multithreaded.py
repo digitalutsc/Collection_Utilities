@@ -13,6 +13,9 @@ from io import BytesIO
 import tempfile
 import csv
 from xml.dom import minidom
+import concurrent.futures
+from rich.progress import Progress
+
 
 
 
@@ -29,6 +32,8 @@ FOXML_NAMESPACES = {
     'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
     'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
 }
+bag_name_and_new_foxml = []
+
 
 def print_help() -> None:
     pass
@@ -144,7 +149,7 @@ def is_foxml_managed(foxml_root: ET.Element) -> bool:
     return False
 
 def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> None:
-    """ Given a <foxml_root> with managed MODS (where the MODS files are somewhere in <bag_archive>), mutate is so it becomes inline MODS."""
+    """ Given a <foxml_root> with managed MODS (where the MODS files are in <bag_archive>), mutate is so it becomes inline MODS."""
 
     # Find the <foxml:datastream> element with ID="MODS"
     datastream = foxml_root.find(".//foxml:datastream[@ID='MODS']", namespaces=FOXML_NAMESPACES)
@@ -159,7 +164,6 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
             content_location_element = datastream_version_element.find(".//foxml:contentLocation", namespaces=FOXML_NAMESPACES)
             if content_location_element:
                 datastream_version_element.remove(content_location_element)
-            # Open the MODS file specified in the datastream element (e.g. MODS.0) and generate the XML tree for it
             mods_root = get_XML_tree_zip_file(datastream_version_element.get('ID'), bag_archive)
             for element in mods_root.iter():
                 # Remove the namespace prefix from the tag if present
@@ -170,9 +174,9 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
                 for key, value in element.attrib.items():
                     if '}' in value:
                         element.attrib[key] = value.split('}', 1)[1]
-            # Wrap the additional XML content in <foxml:xmlContent> tags
+            # Wrap the additional XML content in <foxml:xmlContent>
             xml_content_element = ET.Element("{info:fedora/fedora-system:def/foxml#}xmlContent")
-            # Define the <mods> element with its namespaces (we do this separately as ET ignores it when creating the tree for MODS)
+            # Define the <mods> element with its namespaces
             mods_element = ET.Element(
                 "mods",
                 attrib={
@@ -182,45 +186,44 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
                     "xmlns:xlink": "http://www.w3.org/1999/xlink",
                 },
             )
-            # Add the MODS element to the <foxml:xmlContent> element
             xml_content_element.append(mods_element)
-            # Add the MODS tree to the MODS element
+
             mods_element.extend(mods_root)
-            # Insert the <foxml:xmlContent> element to the datastreamVersion element
+
+            # Insert the <foxml:xmlContent> element to the datastream_version
             datastream_version_element.append(xml_content_element)
 
 def get_bag_name_from_atomzip(atomzip_path: str) -> str:
     """ Given an <atomzip_path>, return the name of the bag contained in the atomzip name. """
     return os.path.basename(atomzip_path).replace('_foxml_atomzip.zip', '')
 
-def setup_namespaces() -> None:
-    """ Setup ET for FOXML namespaces. """
-    # Register the namespaces to preserve the original prefixes
-    ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
-    ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
-    ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
+# Parse command line arguments and extract the path of the input zip file
+input_dir = parse_arguments(sys.argv)
+
+# Create the directory which will store the FOXML files
+return_directory = create_uniquely_named_directory()
+
+# Register the namespaces to preserve the original prefixes
+ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
+ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
 
 def process_container_zip(input_zip: str) -> None:
-    # Generate the name of and create the directory which the FOXML files for this container will be written to
+    if not os.path.basename(input_zip).endswith('.zip'):
+        return
     output_directory = f'{return_directory}/{os.path.basename(input_zip).replace(".zip", "")}'
     os.makedirs(output_directory)
-    # This flag represents whether we found the first atomzip file in the container. 
-    # The reasoning is that the atomzip whose name matches that of the container owns the one and only FOXML in the container.
-    # All the other atomzip files need to have their FOXMLs generated for them.
     found_first_atomzip = False
-    with zipfile.ZipFile(f'{input_dir}/{input_zip}', 'r') as input_zip_archive:
-        # Loop over all file/directory names in the zip file without unzipping it
-        for name in input_zip_archive.namelist():
+    with zipfile.ZipFile(f'{input_dir}/{input_zip}', 'r') as zip_archive:
+        for name in zip_archive.namelist():
             # Check if the file matches the desired pattern (inside data directory and ends with _foxml_atomzip.zip)
             if 'data/' in name and name.endswith('_foxml_atomzip.zip'):
                 bag_name = get_bag_name_from_atomzip(name)
 
-                # Do not run Drush command for the atomzip whose name matches the container's, as the foxml file is already in the given ZIP
-                # Keeping track of found_first_atomzip short-circits the condition and prevents repeated string comparisons
+                # We do not need to run any Drush command for the first atomzip to get the FOXML, as the foxml file is already in the given ZIP
                 if not found_first_atomzip and name not in input_zip:
                     found_first_atomzip = True
-                    # Generate the root directly from the FOXML in the ZIP
-                    foxml_root = get_XML_tree_zip_file('foxml.xml', input_zip_archive)
+                    foxml_root = get_XML_tree_zip_file('foxml.xml', zip_archive)
                 else:
                     # Execute the Drush command to add a FOXML file to this ZIP file
                     result = subprocess.run(format_drush_command_from_atomzip(name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -229,33 +232,46 @@ def process_container_zip(input_zip: str) -> None:
                     if not bag_path:
                         print(Fore.RED, f"Drush command failed for {name}. Skipping this bag.", Fore.RESET)
                         continue
-                    # Find the FOXML in the Drush-generated ZIP, and get the root from there
-                    with zipfile.ZipFile(bag_path, 'r') as drush_zip_archive:
-                        foxml_root = get_XML_tree_zip_file('foxml.xml', drush_zip_archive)
-                # We need to convert managed FOXML to inline, and leave already inline FOXML as is
+                    with zipfile.ZipFile(bag_path, 'r') as bag_archive:
+                        foxml_root = get_XML_tree_zip_file('foxml.xml', bag_archive)
+
                 if is_foxml_managed(foxml_root):
                     print(Fore.GREEN, f'{bag_name} contains a managed FOXML file. Making it inline.', Fore.RESET)
                     try:
-                        # Convert here
-                        managed_to_inline(foxml_root, input_zip_archive)
+                        managed_to_inline(foxml_root, zip_archive)
                     except Exception as e:
                         print(Fore.RED, f'There was an error with converting {bag_name}\'s FOXML to inline; conversion will be skipped: {str(e)}', Fore.RESET)
                 else:
                     print(Fore.GREEN, f'{bag_name} contains an inline FOXML file. This will simply beautify it.', Fore.RESET)
+
+                # Ensure that the original namespace prefix is used in the output file
+                # xml_string = minidom.parseString(ET.tostring(foxml_root)).toprettyxml(indent="   ")
+                # with open(converted_foxml_path, 'w') as converted_foxml_file:
+                #     converted_foxml_file.write(xml_string)
+                # ET.ElementTree(foxml_root).write(converted_foxml_path, encoding="utf-8", xml_declaration=True)
                 
                 xml_string = ET.tostring(foxml_root).decode()
 
-
-                # Here we use xmllint to beautify the XML
                 # Prepare the xmllint command and arguments
                 command = ["xmllint", "--format", "-"]
                 try:
                     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                    stdout, _ = process.communicate(input=xml_string, timeout=10)
+                    stdout, stderr = process.communicate(input=xml_string, timeout=10)
 
                     # Check for any errors
-                    if process.returncode == 0:
+                    if process.returncode != 0:
+                        print("Error occurred while formatting XML:")
+                        print(stderr)
+                    else:
                         formatted_xml_string = stdout
+
+                    foxml_save_directory = os.path.join(output_directory, bag_name)
+                    os.makedirs(foxml_save_directory)
+                    converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
+
+                    # Write the formatted XML string to the file
+                    with open(converted_foxml_path, 'w') as converted_foxml_file:
+                        converted_foxml_file.write(formatted_xml_string)
 
                 except subprocess.TimeoutExpired:
                     print("Process took too long to execute.")
@@ -263,31 +279,35 @@ def process_container_zip(input_zip: str) -> None:
                     print("An error occurred:", str(e))
                 bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
 
-                # Create the directory where the new FOXML for this bag will be saved
-                foxml_save_directory = os.path.join(output_directory, bag_name)
-                os.makedirs(foxml_save_directory)
-                converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
-
-                # Write the formatted XML string to the file
-                with open(converted_foxml_path, 'w') as converted_foxml_file:
-                    converted_foxml_file.write(formatted_xml_string)
 
 
-bag_name_and_new_foxml = []
+def run(zip_files):
+    total = len(zip_files)
+    progress = Progress()
 
-# Parse command line arguments and extract the path of the input zip file
-input_dir = parse_arguments(sys.argv)
+    with progress:
+        task = progress.add_task("[cyan]Processing...", total=total)
 
-# Create the directory which will store the FOXML files
-return_directory = create_uniquely_named_directory()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = [executor.submit(process_container_zip, input_zip) for input_zip in zip_files]
+
+            for future in concurrent.futures.as_completed(futures):
+                progress.advance(task)
+
+
+
+
 
 
 print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
 print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
-for input_zip in track(os.listdir(input_dir), "Processing XML..."):
-    if os.path.basename(input_zip).endswith('.zip'):
-        process_container_zip(input_zip)
+# with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+#     zip_files = [zip_file for zip_file in os.listdir(input_dir) if zip_file.endswith('.zip')]
+#     futures = [executor.submit(process_container_zip, input_zip) for input_zip in zip_files]
+
+zip_files = [zip_file for zip_file in os.listdir(input_dir) if zip_file.endswith('.zip')]
+run(zip_files)
 
 with open(f'{return_directory}/map.csv', 'w', newline='') as map:
     writer = csv.writer(map)
