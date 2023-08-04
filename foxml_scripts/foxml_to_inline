@@ -12,15 +12,23 @@ import uuid
 from io import BytesIO
 import tempfile
 import csv
+from xml.dom import minidom
 
 
 
 
 FOXML_NAMESPACES = {
-        "foxml": "info:fedora/fedora-system:def/foxml#",
-        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    }
-
+    'dc': 'http://purl.org/dc/elements/1.1/',
+    'foxml': 'info:fedora/fedora-system:def/foxml#',
+    'ns2': 'info:fedora/fedora-system:def/audit#',
+    'ns4': 'info:fedora/fedora-system:def/relations-external#',
+    'ns5': 'info:fedora/fedora-system:def/model#',
+    'ns6': 'http://islandora.ca/ontology/relsext#',
+    'ns7': 'http://www.openarchives.org/OAI/2.0/oai_dc/',
+    'ns9': 'urn:oasis:names:tc:xacml:1.0:policy',
+    'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+    'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+}
 
 def print_help() -> None:
     pass
@@ -114,13 +122,14 @@ def get_XML_tree_zip_file(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
                 # Convert the bytes content to a string and parse it with ElementTree
                 try:
                     return ET.fromstring(xml_content.decode('utf-8'))
-                except:
-                    return ET.fromstring(re.sub(r"(<\?xml[^>]+\?>)", r"\1<root>", xml_content.decode('utf-8')) + "</root>")
+                except ET.ParseError as e:
+                    error_message = str(e)
+                    if 'junk after document element' in error_message:
+                        return ET.fromstring(re.sub(r"(<\?xml[^>]+\?>)", r"\1<root>", xml_content.decode('utf-8')) + "</root>")
+                    else:
+                        raise e
     return None
-    
-
-
-            
+      
 
 def is_foxml_managed(foxml_root: ET.Element) -> bool:
     """ Given the <foxml_root> of a foxml.xml file, return True if the MODS are managed, False otherwise. """
@@ -135,7 +144,7 @@ def is_foxml_managed(foxml_root: ET.Element) -> bool:
     return False
 
 def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> None:
-    """ Given a <foxml_root> with managed MODS (where the MODS files are in <bag_archive>), mutate is so it becomes inline MODS."""
+    """ Given a <foxml_root> with managed MODS (where the MODS files are somewhere in <bag_archive>), mutate is so it becomes inline MODS."""
 
     # Find the <foxml:datastream> element with ID="MODS"
     datastream = foxml_root.find(".//foxml:datastream[@ID='MODS']", namespaces=FOXML_NAMESPACES)
@@ -150,6 +159,7 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
             content_location_element = datastream_version_element.find(".//foxml:contentLocation", namespaces=FOXML_NAMESPACES)
             if content_location_element:
                 datastream_version_element.remove(content_location_element)
+            # Open the MODS file specified in the datastream element (e.g. MODS.0) and generate the XML tree for it
             mods_root = get_XML_tree_zip_file(datastream_version_element.get('ID'), bag_archive)
             for element in mods_root.iter():
                 # Remove the namespace prefix from the tag if present
@@ -160,9 +170,9 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
                 for key, value in element.attrib.items():
                     if '}' in value:
                         element.attrib[key] = value.split('}', 1)[1]
-            # Wrap the additional XML content in <foxml:xmlContent>
+            # Wrap the additional XML content in <foxml:xmlContent> tags
             xml_content_element = ET.Element("{info:fedora/fedora-system:def/foxml#}xmlContent")
-            # Define the <mods> element with its namespaces
+            # Define the <mods> element with its namespaces (we do this separately as ET ignores it when creating the tree for MODS)
             mods_element = ET.Element(
                 "mods",
                 attrib={
@@ -172,16 +182,23 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
                     "xmlns:xlink": "http://www.w3.org/1999/xlink",
                 },
             )
+            # Add the MODS element to the <foxml:xmlContent> element
             xml_content_element.append(mods_element)
-
+            # Add the MODS tree to the MODS element
             mods_element.extend(mods_root)
-
-            # Insert the <foxml:xmlContent> element to the datastream_version
+            # Insert the <foxml:xmlContent> element to the datastreamVersion element
             datastream_version_element.append(xml_content_element)
 
 def get_bag_name_from_atomzip(atomzip_path: str) -> str:
     """ Given an <atomzip_path>, return the name of the bag contained in the atomzip name. """
     return os.path.basename(atomzip_path).replace('_foxml_atomzip.zip', '')
+
+def setup_namespaces() -> None:
+    """ Setup ET for FOXML namespaces. """
+    # Register the namespaces to preserve the original prefixes
+    ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
+    ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+    ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
 
 bag_name_and_new_foxml = []
 
@@ -192,8 +209,8 @@ input_dir = parse_arguments(sys.argv)
 return_directory = create_uniquely_named_directory()
 
 
-print(Fore.GREEN, f"Conversion has started. The output directory is {return_directory}")
-print(Fore.GREEN, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
+print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
+print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
 for input_zip in track(os.listdir(input_dir), "Processing XML..."):
     if not os.path.basename(input_zip).endswith('.zip'):
@@ -223,17 +240,47 @@ for input_zip in track(os.listdir(input_dir), "Processing XML..."):
                         foxml_root = get_XML_tree_zip_file('foxml.xml', bag_archive)
 
                 if is_foxml_managed(foxml_root):
-                    managed_to_inline(foxml_root, zip_archive)
-                    print(Fore.GREEN, f'{bag_name} contains a managed FOXML file. Converting...', Fore.RESET)
-                foxml_save_directory = os.path.join(output_directory, bag_name)
-                os.makedirs(foxml_save_directory)
-                # Register the namespaces to preserve the original prefixes
-                ET.register_namespace("foxml", "info:fedora/fedora-system:def/foxml#")
-                ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+                    print(Fore.GREEN, f'{bag_name} contains a managed FOXML file. Making it inline.', Fore.RESET)
+                    try:
+                        managed_to_inline(foxml_root, zip_archive)
+                    except Exception as e:
+                        print(Fore.RED, f'There was an error with converting {bag_name}\'s FOXML to inline; conversion will be skipped: {str(e)}', Fore.RESET)
+                else:
+                    print(Fore.GREEN, f'{bag_name} contains an inline FOXML file. This will simply beautify it.', Fore.RESET)
+
                 # Ensure that the original namespace prefix is used in the output file
-                ET._namespace_map["info:fedora/fedora-system:def/foxml#"] = "foxml"
-                converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
-                ET.ElementTree(foxml_root).write(converted_foxml_path, encoding="utf-8", xml_declaration=True)
+                # xml_string = minidom.parseString(ET.tostring(foxml_root)).toprettyxml(indent="   ")
+                # with open(converted_foxml_path, 'w') as converted_foxml_file:
+                #     converted_foxml_file.write(xml_string)
+                # ET.ElementTree(foxml_root).write(converted_foxml_path, encoding="utf-8", xml_declaration=True)
+                
+                xml_string = ET.tostring(foxml_root).decode()
+
+                # Prepare the xmllint command and arguments
+                command = ["xmllint", "--format", "-"]
+                try:
+                    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    stdout, stderr = process.communicate(input=xml_string, timeout=10)
+
+                    # Check for any errors
+                    if process.returncode != 0:
+                        print("Error occurred while formatting XML:")
+                        print(stderr)
+                    else:
+                        formatted_xml_string = stdout
+
+                    foxml_save_directory = os.path.join(output_directory, bag_name)
+                    os.makedirs(foxml_save_directory)
+                    converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
+
+                    # Write the formatted XML string to the file
+                    with open(converted_foxml_path, 'w') as converted_foxml_file:
+                        converted_foxml_file.write(formatted_xml_string)
+
+                except subprocess.TimeoutExpired:
+                    print("Process took too long to execute.")
+                except Exception as e:
+                    print("An error occurred:", str(e))
                 bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
 
 with open(f'{return_directory}/map.csv', 'w', newline='') as map:
