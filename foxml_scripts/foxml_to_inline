@@ -157,7 +157,7 @@ def managed_to_inline(foxml_root: ET.Element, bag_archive: zipfile.ZipFile) -> N
     # Loop over every datastreamVersion element and make them inline
     for datastream_version_element in datastream_version_elements:
         if datastream_version_element:
-            # Remove the currentLocation element as there will no longer be a MODS file
+            # Remove the contentLocation element as there will no longer be a MODS file
             content_location_element = datastream_version_element.find(".//foxml:contentLocation", namespaces=FOXML_NAMESPACES)
             if content_location_element:
                 datastream_version_element.remove(content_location_element)
@@ -267,7 +267,7 @@ def process_container_zip(input_zip: str, bag_name_and_new_foxml: list[str, str]
 
                     # Check for any errors
                     if process.returncode == 0:
-                        formatted_xml_string = stdout
+                        xml_string = stdout
 
                 except Exception as e:
                     print(Fore.RED, f'Unable to beautify FOXML for {bag_name}:', str(e))
@@ -280,7 +280,7 @@ def process_container_zip(input_zip: str, bag_name_and_new_foxml: list[str, str]
 
                 # Write the formatted XML string to the file
                 with open(converted_foxml_path, 'w') as converted_foxml_file:
-                    converted_foxml_file.write(formatted_xml_string)
+                    converted_foxml_file.write(xml_string)
                 
                 # Document the mapping of the bag name to the converted FOXML path
                 bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
