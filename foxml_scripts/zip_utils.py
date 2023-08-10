@@ -17,21 +17,41 @@ def get_read_stream_zip_file(target_filename: str, zip_ref: zipfile.ZipFile) -> 
     Returns:
         Optional[BytesIO]: A read stream to the first identified matching file, or None if not found.
     """
+    # for name in zip_ref.namelist():
+    #     if re.search(r'\.zip$', name) is not None:
+    #         # We have a nested zip within the main zip
+    #         with zip_ref.open(name) as nested_zip_file:
+    #             # Read the whole nested zip entry into memory
+    #             zfiledata = BytesIO(nested_zip_file.read())
+    #             with zipfile.ZipFile(zfiledata, 'r') as nested_zip_ref:
+    #                 nested_result = get_read_stream_zip_file(
+    #                     target_filename,
+    #                     nested_zip_ref
+    #                 )
+    #             if nested_result:
+    #                 print('here')
+    #                 return nested_result
+    #     else:
+    #         filename = os.path.basename(name)
+    #         if target_filename in filename:
+    #             return zip_ref.open(name)
+
+    nested_zip_list = []
     for name in zip_ref.namelist():
-        if re.search(r'\.zip$', name) is not None:
-            # We have a nested zip within the main zip
+        if '.zip' in name:
+            # Skip nested zips here and process them later if needed
+            nested_zip_list.append(name)
+
+        filename = os.path.basename(name)
+        if target_filename in filename:
+            return zip_ref.open(name)
+    
+    # Now process nested zip files, if any
+    for name in nested_zip_list:
+        if '.zip' in name:
             with zip_ref.open(name) as nested_zip_file:
-                # Read the whole nested zip entry into memory
-                zfiledata = BytesIO(nested_zip_file.read())
-                with zipfile.ZipFile(zfiledata, 'r') as nested_zip_ref:
-                    nested_result = get_read_stream_zip_file(
-                        target_filename,
-                        nested_zip_ref
-                    )
-                if nested_result:
-                    print('here')
-                    return nested_result
-        else:
-            filename = os.path.basename(name)
-            if target_filename in filename:
-                return zip_ref.open(name)
+                nested_zip_data = nested_zip_file.read()
+                with zipfile.ZipFile(BytesIO(nested_zip_data), 'r') as nested_zip_ref:
+                    nested_result = get_read_stream_zip_file(target_filename, nested_zip_ref)
+                    if nested_result:
+                        return nested_result
