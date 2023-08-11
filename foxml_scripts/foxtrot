@@ -14,12 +14,10 @@ import tempfile
 import csv
 from xml.dom import minidom
 import concurrent.futures
-from rich.progress import Progress, TimeElapsedColumn, BarColumn, SpinnerColumn, TimeRemainingColumn, TransferSpeedColumn
+from rich.progress import Progress, TimeElapsedColumn, BarColumn, SpinnerColumn
 from xml_utils import *
 import time
 import re
-import cProfile
-import pstats
 
 FOXML_NAMESPACES = {
     'dc': 'http://purl.org/dc/elements/1.1/',
@@ -53,16 +51,19 @@ def setup_namespaces():
     ET.register_namespace('', 'http://www.loc.gov/mods/v3')
 
 def print_help() -> None:
+    """ Prints the help text to the console."""
     # Open help.txt and print its contents
     with open('help.txt', 'r') as help_file:
         print(help_file.read())
 
 def display_logo() -> None:
+    """ Prints the logo to the console."""
     # Open logo.txt and print its contents
     with open('logo.txt', 'r') as logo_file:
         print(Fore.YELLOW, logo_file.read(), Fore.RESET)
 
 def print_usage() -> None:
+    """ Prints the usage message to the console."""
     print(Fore.RED, "Usage: ./foxtrot [OPTION] <INPUT_DIRECTORY> [OUTPUT_DIRECTORY]", Fore.RESET)
     print(Fore.RED, "Try './foxtrot --help' for more information.", Fore.RESET)
     exit(127)
@@ -114,8 +115,12 @@ def parse_arguments(arguments: list[str]) -> dict:
     return ret
     
 def create_uniquely_named_directory() -> str:
-    """ Creates a uniquely-named directory in the system's temp directory and returns its path. 
-    The directory name is generated using UUID, and will have the form 'dir_<UUID>'. """
+    """
+    Creates a new directory with a unique name in the system's temporary directory and returns its path.
+    
+    Returns:
+        str: The full path of the newly created directory.
+    """
 
     # Get the system's temporary directory location
     temp_dir = tempfile.gettempdir()
@@ -132,7 +137,15 @@ def create_uniquely_named_directory() -> str:
     return new_directory_path
     
 def format_drush_command_from_atomzip(zip_path: str) -> str:
-    """Return 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID', where <zip_path> is of the form .../COLLECTION_PID_foxml_atomzip.zip"""
+    """
+    Format and return a Drush command for creating an Islandora bag object.
+    
+    Args:
+        zip_path (str): The path of the atomzip file. Should be of the form .../COLLECTION_PID_foxml_atomzip.zip.
+        
+    Returns:
+        str: The formatted Drush command in the format 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID'.
+    """
 
     # Extract the COLLECTIONNAME:PID from the zip_path
     zip_filename = os.path.basename(zip_path).replace('_foxml_atomzip.zip', '')
@@ -149,7 +162,15 @@ def format_drush_command_from_atomzip(zip_path: str) -> str:
 
 
 def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> str:
-    """Given <stdout_bytes> from the 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID' command, return the path of the newly created ZIP file."""
+    """
+    Extract and return the path of the newly created ZIP file from the stdout of the 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID' command.
+    
+    Args:
+        stdout_bytes (bytes): The stdout bytes output from the Drush command.
+        
+    Returns:
+        str or None: The path of the newly created ZIP file if found, or None if no path is found.
+    """
     # Decode the stdout bytes to a string
     stdout = stdout_bytes.decode('utf-8')
     
@@ -169,25 +190,127 @@ def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> str:
 
 
 def get_bag_name_from_atomzip(atomzip_path: str) -> str:
-    """ Given an <atomzip_path>, return the name of the bag contained in the atomzip name. """
+    """
+    Extract and return the bag name from the provided atomzip file path.
+    
+    Args:
+        atomzip_path (str): The path of the atomzip file. Should be of the form .../COLLECTION_PID_foxml_atomzip.zip.
+        
+    Returns:
+        str: The name of the bag extracted from the atomzip file path.
+    """
     return os.path.basename(atomzip_path).replace('_foxml_atomzip.zip', '')
 
+def create_container_output_directory(return_directory: str, container_zip_name: str) -> str:
+    """
+    Create and return the path of the directory where the FOXML files for the container will be saved.
+    
+    Args:
+        return_directory (str): The directory where the container zip file is located.
+        container_zip_name (str): The name of the container zip file.
+        
+    Returns:
+        str: The path of the directory where the FOXML files for the container will be saved.
+    """
+    directory_name = f'{return_directory}/{os.path.basename(container_zip_name).replace(".zip", "")}'
+    os.makedirs(directory_name, exist_ok=True)
+    return directory_name
+
+def get_foxml_tree_drush(atomzip_name: str) -> ET.ElementTree:
+    """
+    Generate an ElementTree object from an atomzip file where the FOXML is not present. The FOXML is generated with Drush.
+
+    Args:
+        atomzip_name (str): The name of the atomzip file.
+
+    Returns:
+        xml.etree.ElementTree.ElementTree or None: The ElementTree object representing the FOXML if successful, None otherwise.
+    """
+    # Execute the Drush command to create a FOXML file from this ZIP file
+    result = subprocess.run(format_drush_command_from_atomzip(atomzip_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # Extract the path of the newly created ZIP file (by the Drush command), which will contain the FOXML file in it
+    drush_generated_path = extract_bag_path_from_drush_command_stdout(result.stdout)
+    if not drush_generated_path:
+        print(Fore.RED, f"Drush command failed for {atomzip_name}. Skipping this bag.", Fore.RESET)
+        return None
+    # Find the FOXML in the Drush-generated ZIP, and get the root from there
+    with zipfile.ZipFile(drush_generated_path, 'r') as drush_zip_archive:
+        return get_xml_tree_from_zip('foxml.xml', drush_zip_archive)
 
 
-def process_container_zip(outer_directory: str, target_zip_name: str, return_directory: str, bag_name_and_new_foxml: list[str, str]) -> None:
+def beautify_xml(xml: str, bag_name: str) -> Optional[str]:
+    """
+    Beautify the provided XML string and return it.
+
+    Args:
+        xml (str): The XML string to beautify.
+        bag_name (str): The name of the bag; used for error messages.
+
+    Returns:
+        Optional[str]: The beautified XML string, or None if an error occurred.
+    """
+    # Prepare the xmllint command and arguments
+    command = ["xmllint", "--format", "-"]
+    try:
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, _ = process.communicate(input=xml, timeout=10)
+
+        # Check for any errors
+        if process.returncode == 0:
+            return stdout
+
+    except Exception as e:
+        print(Fore.RED, f'Unable to beautify FOXML for {bag_name}:', str(e), Fore.RESET)
+        return None
+
+def save_foxml_to_container_output_directory(output_directory: str, bag_name: str, foxml: str) -> str:
+    """
+    Save the provided FOXML string to the provided directory under a subdirectory with the bag name.
+
+    Args:
+        output_directory (str): The directory where the FOXML files will be saved.
+        bag_name (str): The name of the bag.
+        foxml (str): The FOXML string to save.
+
+    Returns:
+        str: The path of the saved FOXML file.
+    """
+    # Create the directory where the new FOXML for this bag will be saved
+    foxml_save_directory = os.path.join(output_directory, bag_name)
+    os.makedirs(foxml_save_directory)
+    converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
+
+    # Write the formatted XML string to the file
+    with open(converted_foxml_path, 'w') as converted_foxml_file:
+        converted_foxml_file.write(foxml)
+    
+    return converted_foxml_path
+
+
+def process_container_zip(master_directory: str, container_zip_name: str, output_directory: str) -> None:
+    """
+    Process a container ZIP file containing atomzip files, generate and format FOXML files, and save them to a specified directory.
+
+    Args:
+        master_directory (str): The directory containing the container ZIP file.
+        container_zip_name (str): The name of the container ZIP file.
+        output_directory (str): The directory where processed FOXML files will be saved.
+
+    Returns:
+        None
+    """
     try:
         # Generate the name of and create the directory which the FOXML files for this container will be written to
-        # The directory name is the same as the container zip file name, but without the .zip extension
-        output_directory = f'{return_directory}/{os.path.basename(target_zip_name).replace(".zip", "")}'
-        os.makedirs(output_directory)
+        container_output_directory = create_container_output_directory(output_directory, container_zip_name)
 
         # This flag represents whether we found the first atomzip file in the container. 
         # The reasoning is that the atomzip whose name matches that of the container owns the one and only FOXML in the container.
-        # All the other atomzip files need to have their FOXMLs generated for them.
+        # All the other atomzip files need to have their FOXMLs generated for them using the Drush command.
         found_first_atomzip = False
-        with zipfile.ZipFile(f'{outer_directory}/{target_zip_name}', 'r') as input_zip_archive:
+        with zipfile.ZipFile(f'{master_directory}/{container_zip_name}', 'r') as container_zip:
             # Loop over all file/directory names in the zip file without unzipping it
-            for name in input_zip_archive.namelist():
+            for name in container_zip.namelist():
+                # Start the timer
                 start_time = time.time()
                 # Check if the file matches the desired pattern (inside data directory and ends with _foxml_atomzip.zip)
                 if 'data/' in name and name.endswith('_foxml_atomzip.zip'):
@@ -196,62 +319,49 @@ def process_container_zip(outer_directory: str, target_zip_name: str, return_dir
 
                     # Do not run Drush command for the atomzip whose name matches the container's, as the foxml file is already in the given ZIP
                     # Keeping track of found_first_atomzip short-circits the condition and prevents repeated string comparisons
-                    if not found_first_atomzip and bag_name in target_zip_name:
+                    if not found_first_atomzip and bag_name in container_zip_name == f'Bag-{bag_name}.zip':
+                        # Set the flag to True so that we don't run the Drush command for the rest of the atomzip files in the container
                         found_first_atomzip = True
                         # Generate the root directly from the FOXML in the ZIP
-                        foxml_tree = get_xml_tree_from_zip('foxml.xml', input_zip_archive)
+                        foxml_tree = get_xml_tree_from_zip('foxml.xml', container_zip)
                     else:
-                        # Execute the Drush command to create a FOXML file from this ZIP file
-                        result = subprocess.run(format_drush_command_from_atomzip(name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                        # Extract the path of the newly created ZIP file (by the Drush command), which will contain the FOXML file in it
-                        drush_generated_path = extract_bag_path_from_drush_command_stdout(result.stdout)
-                        if not drush_generated_path:
-                            print(Fore.RED, f"Drush command failed for {name}. Skipping this bag.", Fore.RESET)
+                        # Generate the root using the Drush command
+                        foxml_tree = get_foxml_tree_drush(name)
+                        if not foxml_tree:
                             continue
-                        # Find the FOXML in the Drush-generated ZIP, and get the root from there
-                        with zipfile.ZipFile(drush_generated_path, 'r') as drush_zip_archive:
-                            foxml_tree = get_xml_tree_from_zip('foxml.xml', drush_zip_archive)
 
                     # We now convert managed FOXML to inline, and leave already inline FOXML as is
-                    with zipfile.ZipFile(BytesIO(input_zip_archive.read(name)), 'r') as atomzip_archive:
-                        process_foxml_tree(foxml_tree, atomzip_archive)
+                    with zipfile.ZipFile(BytesIO(container_zip.read(name)), 'r') as atomzip:
+                        process_foxml_tree(foxml_tree, atomzip)
                     
                     xml_string = ET.tostring(foxml_tree.getroot(), encoding='utf8', method='xml').decode()
 
 
-                    # Here we use xmllint to beautify the XML
-                    # Prepare the xmllint command and arguments
-                    command = ["xmllint", "--format", "-"]
-                    try:
-                        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                        stdout, _ = process.communicate(input=xml_string, timeout=10)
+                    # Beautify the XML string
+                    xml_string = beautify_xml(xml_string, bag_name)
+                    if not xml_string:
+                        continue
 
-                        # Check for any errors
-                        if process.returncode == 0:
-                            xml_string = stdout
+                    # Save the FOXML to the output directory
+                    converted_foxml_path = save_foxml_to_container_output_directory(container_output_directory, bag_name, xml_string)
 
-                    except Exception as e:
-                        print(Fore.RED, f'Unable to beautify FOXML for {bag_name}:', str(e))
+                    finish_time = time.time() - start_time
 
-                    # Create the directory where the new FOXML for this bag will be saved
-                    foxml_save_directory = os.path.join(output_directory, bag_name)
-                    os.makedirs(foxml_save_directory)
-                    converted_foxml_path = f'{foxml_save_directory}/foxml.xml'
-
-                    # Write the formatted XML string to the file
-                    with open(converted_foxml_path, 'w') as converted_foxml_file:
-                        converted_foxml_file.write(xml_string)
+                    with open(f'{output_directory}/map.csv', 'a') as map_file:
+                        map_file.write(f'{bag_name},{converted_foxml_path},{finish_time}\n')
                     
-                    # Document the mapping of the bag name to the converted FOXML path
-                    bag_name_and_new_foxml.append([bag_name, converted_foxml_path])
-                    print(Fore.GREEN, f'Converted FOXML for {bag_name} and saved to {converted_foxml_path} in {time.time() - start_time} seconds', Fore.RESET)
+                    
+                    print(Fore.GREEN, f'Converted FOXML for {bag_name} and saved to {converted_foxml_path} in {finish_time} seconds', Fore.RESET)
+
     except Exception as e:
-        print(Fore.RED, f'Failed to process {target_zip_name}:', str(e), Fore.RESET)
+        print(Fore.RED, f'Failed to process {container_zip_name}:', str(e), Fore.RESET)
         return
 
 
+def multithreaded(return_directory: str, input_dir: str):
+    # Get the names of all zip files in the input directory
+    zip_files = [zip_file for zip_file in os.listdir(input_dir) if zip_file.endswith('.zip')]
 
-def run(input_dir: str, zip_files: list[str], return_directory: str, bag_name_and_new_foxml: list[str, str]) -> None:
     progress = Progress(
         "[progress.description]{task.description}",
         SpinnerColumn(),
@@ -265,37 +375,15 @@ def run(input_dir: str, zip_files: list[str], return_directory: str, bag_name_an
         task = progress.add_task("[cyan]Processing", total=len(zip_files))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            futures = [executor.submit(process_container_zip, input_dir, zip, return_directory, bag_name_and_new_foxml) for zip in zip_files]
+            futures = [executor.submit(process_container_zip, input_dir, zip, return_directory) for zip in zip_files]
 
             for _ in concurrent.futures.as_completed(futures):
                 progress.advance(task)
 
-def multithreaded(return_directory: str, input_dir: str, bag_name_and_new_foxml: list[str, str]):
-    # Get the names of all zip files in the input directory
-    zip_files = [zip_file for zip_file in os.listdir(input_dir) if zip_file.endswith('.zip')]
-
-    run(input_dir, zip_files, return_directory, bag_name_and_new_foxml)
-
-    # Write the mapping of bag names to converted FOXML paths to a CSV file
-    with open(f'{return_directory}/map.csv', 'w', newline='') as map:
-        writer = csv.writer(map)
-        # Write the column names to the CSV file
-        writer.writerow(['bag_name','converted_foxml_path'])
-        # Write the accumulated data to the CSV file in bulk
-        writer.writerows(bag_name_and_new_foxml)
-
-def singlethreaded(return_directory: str, input_dir: str, bag_name_and_new_foxml: list[str, str]) -> None:
+def singlethreaded(return_directory: str, input_dir: str) -> None:
     for zip_file in track(os.listdir(input_dir), description='Processing...'):
         if zip_file.endswith('.zip'):
-            process_container_zip(input_dir, zip_file, return_directory, bag_name_and_new_foxml)
-
-    # Write the mapping of bag names to converted FOXML paths to a CSV file
-    with open(f'{return_directory}/map.csv', 'w', newline='') as map:
-        writer = csv.writer(map)
-        # Write the column names to the CSV file
-        writer.writerow(['bag_name','converted_foxml_path'])
-        # Write the accumulated data to the CSV file in bulk
-        writer.writerows(bag_name_and_new_foxml)
+            process_container_zip(input_dir, zip_file, return_directory)
 
 
 
@@ -315,15 +403,14 @@ else:
     return_directory = create_uniquely_named_directory()
 
 print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
+with open(f'{return_directory}/map.csv', 'w') as map:
+    map.write('bag_name,converted_foxml_path,time\n')
 print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
-
-# This list will contain as its first element the name of a bag and as its second element the path to the converted FOXML file
-bag_name_and_new_foxml = []
 if os.cpu_count() > 1 and 'no_multithreading' not in arguments['options']:
-    multithreaded(return_directory, arguments['input'], bag_name_and_new_foxml)
+    multithreaded(return_directory, arguments['input'])
 else:
-    singlethreaded(return_directory, arguments['input'], bag_name_and_new_foxml)
+    singlethreaded(return_directory, arguments['input'])
 
 
 
