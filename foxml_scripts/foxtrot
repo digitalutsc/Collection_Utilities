@@ -374,11 +374,11 @@ def process_container_zip(master_directory: str, container_zip_name: str, output
         return
 
 
-def multithreaded(return_directory: str, input_dir: str, multithreaded_bags: bool):
-    if multithreaded_bags:
+def multithreaded(return_directory: str, input_dir: str, multithreaded_atomzips: bool):
+    if multithreaded_atomzips:
         for zip_file in track(os.listdir(input_dir), description='Processing'):
             if zip_file.endswith('.zip'):
-                process_container_zip(input_dir, zip_file, return_directory, multithreaded_bags)
+                process_container_zip(input_dir, zip_file, return_directory, multithreaded_atomzips)
     else:
         # Get the names of all zip files in the input directory
         zip_files = [zip_file for zip_file in os.listdir(input_dir) if zip_file.endswith('.zip')]
@@ -396,7 +396,7 @@ def multithreaded(return_directory: str, input_dir: str, multithreaded_bags: boo
             task = progress.add_task("[cyan]Processing", total=len(zip_files))
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-                futures = [executor.submit(process_container_zip, input_dir, zip, return_directory, multithreaded_bags) for zip in zip_files]
+                futures = [executor.submit(process_container_zip, input_dir, zip, return_directory, multithreaded_atomzips) for zip in zip_files]
 
                 for _ in concurrent.futures.as_completed(futures):
                     progress.advance(task)
@@ -429,7 +429,7 @@ with open(f'{return_directory}/map.csv', 'w') as map:
 print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
 if os.cpu_count() > 1 and 'no_multithreading' not in arguments['options']:
-    multithreaded(return_directory, arguments['input'], 'multithreaded_bags' in arguments['options'])
+    multithreaded(return_directory, arguments['input'], 'multithreaded_atomzips' in arguments['options'])
 else:
     singlethreaded(return_directory, arguments['input'])
 
