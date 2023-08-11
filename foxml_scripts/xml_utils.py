@@ -1,22 +1,23 @@
 import zipfile
-import os
-import re
-from io import BytesIO
 import xml.etree.ElementTree as ET
 from zip_utils import *
 from typing import Optional
 
+# This dictionary contains the namespaces used in the FOXML files
 FOXML_NAMESPACES = {
     'dc': 'http://purl.org/dc/elements/1.1/',
     'foxml': 'info:fedora/fedora-system:def/foxml#',
     'ns2': 'info:fedora/fedora-system:def/audit#',
+    'ns3': "http://www.loc.gov/mods/v3",
     'ns4': 'info:fedora/fedora-system:def/relations-external#',
     'ns5': 'info:fedora/fedora-system:def/model#',
     'ns6': 'http://islandora.ca/ontology/relsext#',
     'ns7': 'http://www.openarchives.org/OAI/2.0/oai_dc/',
+    'ns8': 'http://islandora.ca/ontology/relsext#',
     'ns9': 'urn:oasis:names:tc:xacml:1.0:policy',
     'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
     'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+    'mods': "http://www.loc.gov/mods/v3" 
 }
 
 
@@ -32,6 +33,7 @@ def setup_namespaces():
     ET.register_namespace('Policy', 'urn:oasis:names:tc:xacml:1.0:policy')
     ET.register_namespace('rdf', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#')
     ET.register_namespace('xsi', 'http://www.w3.org/2001/XMLSchema-instance')
+    ET.register_namespace('', 'http://www.loc.gov/mods/v3')
 
 
 def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.ElementTree:
@@ -239,16 +241,3 @@ def process_foxml_tree(foxml_tree: ET.ElementTree, atomzip_archive: zipfile.ZipF
     """
     if is_foxml_managed(foxml_tree):
         replace_managed_mods_with_inline_in_foxml(foxml_tree, atomzip_archive)
-
-
-
-
-
-if __name__ == '__main__':
-    setup_namespaces()
-    with zipfile.ZipFile('/home/dsu/collection_utilities/foxml_scripts/Bag-dsu_356.zip', 'r') as zip_ref:
-        tree = get_XML_tree_zip_file('foxml.xml', zip_ref)
-        a = tree.find(".//foxml:datastream[@ID='MODS']", FOXML_NAMESPACES)
-        a = a.findall(".//foxml:datastreamVersion", FOXML_NAMESPACES)
-        for i in a:
-            print(i.find(".//foxml:contentLocation", FOXML_NAMESPACES).attrib.get('REF'))
