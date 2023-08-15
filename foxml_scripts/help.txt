@@ -1,0 +1,19 @@
+Usage: ./foxtrot [OPTION] <INPUT_DIRECTORY> [OUTPUT_DIRECTORY]
+
+foxtrot - Convert BagIt FOXML files with Managed MODs to Inline MODs.
+
+Description:
+    Foxtrot is a Python script that facilitates the conversion of BagIt FOXML
+    files containing Managed MODs metadata into Inline MODs format. It processes
+    a directory containing zip files, which are containers for the atomzip files. 
+    Foxtrot helps you migrate your metadata from the Managed MODs structure to the 
+    Inline MODs structure.
+
+Options:
+    -h, --help                Show this help message and exit.
+    --no_multithreading       Use a single core for processing (disable multithreading).
+    --multithreaded_atomzips  Process atomzips in parallel instead of processing bags in parallel.
+
+Arguments:
+    <INPUT_DIRECTORY>     The path to the directory containing zip files with atomzip files.
+    [OUTPUT_DIRECTORY]    Optional: The path to the directory where converted files will be stored.
