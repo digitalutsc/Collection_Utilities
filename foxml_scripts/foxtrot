@@ -216,7 +216,7 @@ def create_container_output_directory(return_directory: str, container_zip_name:
     os.makedirs(directory_name, exist_ok=True)
     return directory_name
 
-def get_foxml_tree_drush(atomzip_name: str) -> ET.ElementTree:
+def get_foxml_tree_drush(atomzip_name: str) -> Optional[tuple[BytesIO, ET.ElementTree]]:
     """
     Generate an ElementTree object from an atomzip file where the FOXML is not present. The FOXML is generated with Drush.
 
@@ -224,7 +224,7 @@ def get_foxml_tree_drush(atomzip_name: str) -> ET.ElementTree:
         atomzip_name (str): The name of the atomzip file.
 
     Returns:
-        xml.etree.ElementTree.ElementTree or None: The ElementTree object representing the FOXML if successful, None otherwise.
+        Optional[tuple[BytesIO, ET.ElementTree]]: A tuple containing the read stream and the ElementTree object, or None if an error occurred.
     """
     # Execute the Drush command to create a FOXML file from this ZIP file
     result = subprocess.run(format_drush_command_from_atomzip(atomzip_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -318,17 +318,19 @@ def process_atomzip(container_zip_name: str,
         # Do not run Drush command for the atomzip whose name matches the container's, as the foxml file is already in the given ZIP
         if container_zip_name == f'Bag-{bag_name}.zip':
             # Generate the root directly from the FOXML in the ZIP
-            foxml_tree = get_xml_tree_from_zip('foxml.xml', container_zip)
+            read_stream, foxml_tree = get_xml_tree_from_zip('foxml.xml', container_zip)
         else:
             # Generate the root using the Drush command
-            foxml_tree = get_foxml_tree_drush(atomzip_name)
+            ret = get_foxml_tree_drush(atomzip_name)
             if not foxml_tree:
                 return
+            read_stream, foxml_tree = ret
 
         # We now convert managed FOXML to inline, and leave already inline FOXML as is
         with zipfile.ZipFile(BytesIO(container_zip.read(atomzip_name)), 'r') as atomzip:
             process_foxml_tree(foxml_tree, atomzip)
         
+        # Convert the ElementTree object to a string
         xml_string = ET.tostring(foxml_tree.getroot(), encoding='utf8', method='xml').decode()
 
 
@@ -344,18 +346,23 @@ def process_atomzip(container_zip_name: str,
         # We use a lock to ensure thread safety
         with file_lock:
             with open(f'{output_directory}/map.csv', 'a') as map_file:
-                map_file.write(f'{bag_name},{converted_foxml_path}\n')
+                map_file.write(f'{bag_name},{converted_foxml_path},true\n')
         
         
         print(Fore.GREEN, f'Converted FOXML for {bag_name} and saved to {converted_foxml_path}', Fore.RESET)
 
     except Exception as e:
         print(Fore.RED, f'Unable to convert FOXML for {bag_name}:', str(e), Fore.RESET)
-        # Write the bag name and path to the map file
+
+        # Save the original FOXML for this bag to the output directory
+        read_stream.seek(0)
+        xml_string = read_stream.read().decode()
+        converted_foxml_path = save_foxml_to_container_output_directory(container_output_directory, bag_name, xml_string)
+        # Write the bag name and path to the map file, with the 'converted' flag set to false
         # We use a lock to ensure thread safety
         with file_lock:
             with open(f'{output_directory}/map.csv', 'a') as map_file:
-                map_file.write(f'{bag_name},\n')
+                map_file.write(f'{bag_name},{converted_foxml_path},false\n')
 
 
 
@@ -493,7 +500,7 @@ def main() -> None:
 
     print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
     with open(f'{return_directory}/map.csv', 'w') as map:
-        map.write('bag_name,converted_foxml_path\n')
+        map.write('bag_name,converted_foxml_path,converted\n')
     print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
     # If we have multiple cores and the user didn't specify to not use multithreading, then use multithreading

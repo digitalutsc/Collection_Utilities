@@ -36,7 +36,7 @@ def setup_namespaces() -> None:
     ET.register_namespace('', 'http://www.loc.gov/mods/v3')
 
 
-def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.ElementTree:
+def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> tuple[BytesIO, ET.ElementTree]:
     """
     Search for a specific filename within a ZipFile object, including nested zip files.
 
@@ -49,7 +49,8 @@ def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
         zip_ref (zipfile.ZipFile): The ZipFile object to search within.
 
     Returns:
-        ET.ElementTree: An ElementTree object representing the XML content of the first matching XML file.
+        tuple[BytesIO, ET.ElementTree]: A tuple containing the read stream for the file and the
+        ElementTree object representing the XML content of the file.
 
     Raises:
         FileNotFoundError: If the target_filename is not found in the zip file.
@@ -60,7 +61,7 @@ def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
     file_read_stream = get_read_stream_zip_file(target_filename, zip_ref)
     if not file_read_stream:
         raise FileNotFoundError(f"File {target_filename} not found in zip file.")
-    return ET.parse(file_read_stream)
+    return file_read_stream, ET.parse(file_read_stream)
 
 def is_foxml_managed(foxml_root: ET.ElementTree) -> bool:
     """
@@ -156,7 +157,7 @@ def add_xml_content_to_mods_record(mods_record: ET.Element, bag_archive: zipfile
     # Set the xmlContent element as the last child of the MODS record
     mods_record.append(xml_content)
     # Open the MODS file specified in the datastream element (e.g. MODS.0) and generate the XML tree for it
-    mods_tree = get_xml_tree_from_zip(mods_record.get("ID"), bag_archive)
+    _, mods_tree = get_xml_tree_from_zip(mods_record.get("ID"), bag_archive)
     # Surround the MODS tree with a <mods> element
     # Define the <mods> element with its namespaces (we do this separately as ET ignores it when creating the tree for MODS)
     mods_element = ET.Element(
