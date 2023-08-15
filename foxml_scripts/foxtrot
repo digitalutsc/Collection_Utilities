@@ -36,7 +36,7 @@ FOXML_NAMESPACES = {
 }
 
 
-def setup_namespaces():
+def setup_namespaces() -> None:
     """ Sets up the namespaces for the XML tree. """
     ET.register_namespace("dc", 'http://purl.org/dc/elements/1.1/')
     ET.register_namespace("foxml", 'info:fedora/fedora-system:def/foxml#')
@@ -161,7 +161,7 @@ def format_drush_command_from_atomzip(zip_path: str) -> str:
     return f"drush @dsu --user=1 create-islandora-bag object {collection_name}:{pid}"
 
 
-def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> str:
+def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> Optional[str]:
     """
     Extract and return the path of the newly created ZIP file from the stdout of the 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID' command.
     
@@ -169,7 +169,7 @@ def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> str:
         stdout_bytes (bytes): The stdout bytes output from the Drush command.
         
     Returns:
-        str or None: The path of the newly created ZIP file if found, or None if no path is found.
+        Optional[str]: The path of the newly created ZIP file if found, or None if no path is found.
     """
     # Decode the stdout bytes to a string
     stdout = stdout_bytes.decode('utf-8')
@@ -304,49 +304,59 @@ def process_atomzip(container_zip_name: str,
     - output_directory (str): The directory where the converted FOXML and metadata will be saved.
 
     Returns:
-    None
+        None
 
     This function processes an atomzip file within a container ZIP by either generating the FOXML root
     from an existing ZIP file or using a Drush command. It then converts managed FOXML to inline format
     and saves the formatted FOXML and metadata to the appropriate directories. The processing details are
     logged, and the function ensures thread safety when writing to the output files.
     """
-    # Get the name of the bag from the atomzip file name
-    bag_name = get_bag_name_from_atomzip(atomzip_name)
+    try:
+        # Get the name of the bag from the atomzip file name
+        bag_name = get_bag_name_from_atomzip(atomzip_name)
 
-    # Do not run Drush command for the atomzip whose name matches the container's, as the foxml file is already in the given ZIP
-    if container_zip_name == f'Bag-{bag_name}.zip':
-        # Generate the root directly from the FOXML in the ZIP
-        foxml_tree = get_xml_tree_from_zip('foxml.xml', container_zip)
-    else:
-        # Generate the root using the Drush command
-        foxml_tree = get_foxml_tree_drush(atomzip_name)
-        if not foxml_tree:
+        # Do not run Drush command for the atomzip whose name matches the container's, as the foxml file is already in the given ZIP
+        if container_zip_name == f'Bag-{bag_name}.zip':
+            # Generate the root directly from the FOXML in the ZIP
+            foxml_tree = get_xml_tree_from_zip('foxml.xml', container_zip)
+        else:
+            # Generate the root using the Drush command
+            foxml_tree = get_foxml_tree_drush(atomzip_name)
+            if not foxml_tree:
+                return
+
+        # We now convert managed FOXML to inline, and leave already inline FOXML as is
+        with zipfile.ZipFile(BytesIO(container_zip.read(atomzip_name)), 'r') as atomzip:
+            process_foxml_tree(foxml_tree, atomzip)
+        
+        xml_string = ET.tostring(foxml_tree.getroot(), encoding='utf8', method='xml').decode()
+
+
+        # Beautify the XML string
+        xml_string = beautify_xml(xml_string, bag_name)
+        if not xml_string:
             return
 
-    # We now convert managed FOXML to inline, and leave already inline FOXML as is
-    with zipfile.ZipFile(BytesIO(container_zip.read(atomzip_name)), 'r') as atomzip:
-        process_foxml_tree(foxml_tree, atomzip)
-    
-    xml_string = ET.tostring(foxml_tree.getroot(), encoding='utf8', method='xml').decode()
+        # Save the FOXML to the output directory
+        converted_foxml_path = save_foxml_to_container_output_directory(container_output_directory, bag_name, xml_string)
 
+        # Write the bag name and path to the map file
+        # We use a lock to ensure thread safety
+        with file_lock:
+            with open(f'{output_directory}/map.csv', 'a') as map_file:
+                map_file.write(f'{bag_name},{converted_foxml_path}\n')
+        
+        
+        print(Fore.GREEN, f'Converted FOXML for {bag_name} and saved to {converted_foxml_path}', Fore.RESET)
 
-    # Beautify the XML string
-    xml_string = beautify_xml(xml_string, bag_name)
-    if not xml_string:
-        return
+    except Exception as e:
+        print(Fore.RED, f'Unable to convert FOXML for {bag_name}:', str(e), Fore.RESET)
+        # Write the bag name and path to the map file
+        # We use a lock to ensure thread safety
+        with file_lock:
+            with open(f'{output_directory}/map.csv', 'a') as map_file:
+                map_file.write(f'{bag_name},\n')
 
-    # Save the FOXML to the output directory
-    converted_foxml_path = save_foxml_to_container_output_directory(container_output_directory, bag_name, xml_string)
-
-    # Write the bag name and path to the map file
-    # We use a lock to ensure thread safety
-    with file_lock:
-        with open(f'{output_directory}/map.csv', 'a') as map_file:
-            map_file.write(f'{bag_name},{converted_foxml_path}\n')
-    
-    
-    print(Fore.GREEN, f'Converted FOXML for {bag_name} and saved to {converted_foxml_path}', Fore.RESET)
 
 
 def process_container_zip(master_directory: str, container_zip_name: str, output_directory: str, multithreaded: str) -> None:
@@ -390,7 +400,7 @@ def process_container_zip(master_directory: str, container_zip_name: str, output
         return
 
 
-def multithreaded(return_directory: str, input_dir: str, multithreaded_atomzips: bool):
+def multithreaded(return_directory: str, input_dir: str, multithreaded_atomzips: bool) -> None:
     """
     Process container ZIP files in the specified input directory, generate and format FOXML files,
     and save them to the provided return directory. Utilizes multithreading for improved efficiency.
@@ -457,34 +467,44 @@ def singlethreaded(return_directory: str, input_dir: str) -> None:
             process_container_zip(input_dir, zip_file, return_directory)
 
 
+def main() -> None:
+    """
+    The main function of the script. Parses command line arguments, sets up the namespaces, and
+    processes the container ZIP files in the specified input directory. The formatted FOXML files
+    are saved to the specified output directory.
+    """
 
-# Parse command line arguments
-arguments = parse_arguments(sys.argv)
+    # Parse command line arguments
+    arguments = parse_arguments(sys.argv)
 
-display_logo()
+    # Display the logo
+    display_logo()
 
-setup_namespaces()
+    # Setup the namespaces
+    setup_namespaces()
 
-# Create the directory which will store the FOXML files
-if 'output' in arguments:
-    if not os.path.exists(arguments['output']):
-        os.makedirs(arguments['output'])
-    return_directory = arguments['output']
-else:
-    return_directory = create_uniquely_named_directory()
+    # Create the directory which will store the FOXML files
+    if 'output' in arguments:
+        if not os.path.exists(arguments['output']):
+            os.makedirs(arguments['output'])
+        return_directory = arguments['output']
+    else:
+        return_directory = create_uniquely_named_directory()
 
-print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
-with open(f'{return_directory}/map.csv', 'w') as map:
-    map.write('bag_name,converted_foxml_path\n')
-print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
+    print(Fore.YELLOW, f"Conversion has started. The output directory is {return_directory}")
+    with open(f'{return_directory}/map.csv', 'w') as map:
+        map.write('bag_name,converted_foxml_path\n')
+    print(Fore.YELLOW, f'Please refer to {return_directory}/map.csv for a mapping of bags to their converted FOXML files.', Fore.RESET)
 
-if os.cpu_count() > 1 and 'no_multithreading' not in arguments['options']:
-    multithreaded(return_directory, arguments['input'], 'multithreaded_atomzips' in arguments['options'])
-else:
-    singlethreaded(return_directory, arguments['input'])
+    # If we have multiple cores and the user didn't specify to not use multithreading, then use multithreading
+    if os.cpu_count() > 1 and 'no_multithreading' not in arguments['options']:
+        multithreaded(return_directory, arguments['input'], 'multithreaded_atomzips' in arguments['options'])
+    # Otherwise, use singlethreading
+    else:
+        singlethreaded(return_directory, arguments['input'])
 
 
-
+main()
             
 
 

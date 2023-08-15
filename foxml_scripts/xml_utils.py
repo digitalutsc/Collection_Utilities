@@ -1,7 +1,7 @@
 import zipfile
 import xml.etree.ElementTree as ET
 from zip_utils import *
-from typing import Optional
+import re
 
 # This dictionary contains the namespaces used in the FOXML files
 FOXML_NAMESPACES = {
@@ -21,7 +21,7 @@ FOXML_NAMESPACES = {
 }
 
 
-def setup_namespaces():
+def setup_namespaces() -> None:
     """ Sets up the namespaces for the XML tree. """
     ET.register_namespace("dc", 'http://purl.org/dc/elements/1.1/')
     ET.register_namespace("foxml", 'info:fedora/fedora-system:def/foxml#')
@@ -53,6 +53,7 @@ def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
 
     Raises:
         FileNotFoundError: If the target_filename is not found in the zip file.
+        ET.ParseError: If the target_filename is found, but the content is not valid XML.
     """
 
     # Get the read stream for the target file and parse it into an ElementTree
@@ -60,7 +61,6 @@ def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> ET.
     if not file_read_stream:
         raise FileNotFoundError(f"File {target_filename} not found in zip file.")
     return ET.parse(file_read_stream)
-
 
 def is_foxml_managed(foxml_root: ET.ElementTree) -> bool:
     """
@@ -148,6 +148,7 @@ def add_xml_content_to_mods_record(mods_record: ET.Element, bag_archive: zipfile
 
     Raises:
         FileNotFoundError: If the specified MODS file is not found in the bag_archive.
+        ET.ParseError: If the specified MODS file is found, but the content is not valid XML.
     """
 
     # Create a new <foxml:xmlContent> element in the MODS record
@@ -188,6 +189,7 @@ def replace_managed_mods_with_inline(datastream_element: ET.Element, bag_archive
 
     Raises:
         FileNotFoundError: If the specified MODS file is not found in the bag_archive.
+        ET.ParseError: If the specified MODS file is found, but the content is not valid XML.
     """
 
     # Find all the <foxml:datastreamVersion> with LABEL="MODS Record"
@@ -215,6 +217,7 @@ def replace_managed_mods_with_inline_in_foxml(foxml_tree: ET.ElementTree, bag_ar
 
     Raises:
         FileNotFoundError: If the specified MODS file is not found in the bag_archive.
+        ET.ParseError: If the specified MODS file is found, but the content is not valid XML.
     """
 
     # Find the <foxml:datastream> element with ID="MODS"
@@ -238,6 +241,7 @@ def process_foxml_tree(foxml_tree: ET.ElementTree, atomzip_archive: zipfile.ZipF
 
     Raises:
         FileNotFoundError: If any of the specified MODS files are not found in the bag_archive.
+        ET.ParseError: If any of the specified MODS files are found, but the content is not valid XML.
     """
     if is_foxml_managed(foxml_tree):
         replace_managed_mods_with_inline_in_foxml(foxml_tree, atomzip_archive)
