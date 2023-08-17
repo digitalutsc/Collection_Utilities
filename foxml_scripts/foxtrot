@@ -322,7 +322,7 @@ def process_atomzip(container_zip_name: str,
         else:
             # Generate the root using the Drush command
             ret = get_foxml_tree_drush(atomzip_name)
-            if not foxml_tree:
+            if not ret:
                 return
             read_stream, foxml_tree = ret
 
