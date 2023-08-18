@@ -1,0 +1,38 @@
+#! /usr/bin/env python3
+
+import os
+import sys
+import yaml
+
+def process_file(file_path: str, unwanted_dependencies: list[str]) -> None:
+    # Load the YML file into a dictionary
+    with open(file_path, "r") as yaml_file:
+        data = yaml.safe_load(yaml_file)
+
+    # We remove the unwanted dependencies from data["dependencies"]["enforced"]["module"]
+    if "dependencies" in data and "enforced" in data["dependencies"] and "module" in data["dependencies"]["enforced"]:
+        enforced_modules = data["dependencies"]["enforced"]["module"]
+        for dependency in unwanted_dependencies:
+            if dependency in enforced_modules:
+                print(f'Removing "{dependency}" from "{file_path}"')
+                enforced_modules.remove(dependency)
+
+        with open(file_path, "w") as yaml_file:
+            yaml.dump(data, yaml_file, default_flow_style=False)
+
+def main(directory: str, unwanted_dependencies: list[str]) -> None:
+    # Loop over all files in the directory
+    for filename in os.listdir(directory):
+        # If the file is a YML file, process it
+        if filename.endswith(".yml"):
+            file_path = os.path.join(directory, filename)
+            process_file(file_path, unwanted_dependencies)
+            # print(f"Processed: {file_path}")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: ./remove_unwanted_dependencies <directory_path> <dependency1> <dependency2> ...")
+    else:
+        directory_path = sys.argv[1]
+        unwanted_dependencies = sys.argv[2:]
+        main(directory_path, unwanted_dependencies)
