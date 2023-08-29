@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+
+import csv
+import sys
+import re
+from typing import Iterator
+
+def csv_to_dict(csv_file: str) -> list[dict]:
+    """
+    Converts a CSV file to a list of Python dictionaries.
+    
+    Args:
+        csv_file (str): The path to the CSV file to be converted.
+        
+    Returns:
+        list[dict]: A list of dictionaries, where each dictionary represents a row
+                    from the CSV file with column names as keys and corresponding
+                    row values as values.
+    """
+    # Open the CSV file and create a CSV reader that treats the first row as column names
+    with open(csv_file, 'r', newline='') as file:
+        reader = csv.DictReader(file)
+        
+        # Convert the CSV reader to a list of dictionaries and return it
+        return list(reader)
+
+
+def get_csv_writer() -> csv.DictWriter:
+    """
+    Gets a CSV writer object for writing to a CSV file with name specified in the command line arguments.
+    
+    Returns:
+        csv.DictWriter: A CSV writer object configured to write dictionaries to the specified CSV file.
+    """
+    # We return the DictWriter with the appropriate field names
+    return csv.DictWriter(open(f'{sys.argv[2]}', 'w'), fieldnames=['identifier', 'title', 'model', 'page_num', 'file_path'])
+
+def get_title(row: dict) -> str:
+    """
+    Gets the title of the Paged Content.
+    
+    This function generates a title based on the information available in the given dictionary row.
+    
+    Args:
+        row (dict): A dictionary containing information about the Paged Content.
+        
+    Returns:
+        str: The generated title, combining 'Title Subsection (English)' and 'Sub-subection (English)' 
+             fields if available, or just 'Title Subsection (English)' if 'Sub-subection (English)' is missing.
+    """
+    return row['Title Subsection (English)'] + ' - ' + row['Sub-subection (English)'] if row['Sub-subection (English)'] else row['Title Subsection (English)']
+
+def write_paged_content_row(writer: csv.DictWriter, row: dict) -> None:
+    """
+    Writes a row to ingest a Paged Content into a CSV file.
+
+    The format is identifier,title,model,page_num,file_path, where the values are as follows:
+        - identifier: The identifier of the Paged Content; this is the same as in <row>
+        - title: The title of the Paged Content; this is generated using the get_title function
+        - model: The model of the Paged Content; this is always 'Paged Content'
+        - page_num: The page number of the Paged Content; this is always ''
+        - file_path: The file path of the Paged Content; this is always ''
+
+    
+    This function constructs a dictionary representing the Paged Content information and writes it
+    as a row to the provided CSV writer.
+    
+    Args:
+        writer (csv.DictWriter): A CSV writer object used for writing rows.
+        row (dict): A dictionary containing information about the Paged Content.
+        
+    Returns:
+        None
+    """
+    writer.writerow({
+        'identifier': row['Identifier'],
+        'title': get_title(row),
+        'model': 'Paged Content',
+        'page_num': '',
+        'file_path': ''
+        })
+
+def sanitize_page_numbers(page_numbers: str) -> str:
+    """
+    Sanitizes the page numbers to a consistent format.
+    
+    This function removes any spaces from the input page numbers and returns the sanitized version.
+    
+    Args:
+        page_numbers (str): Page numbers in the format 'XXXXXXX-XXXXXXX|XXXXXXX-XXXXXXX|...'.
+        
+    Returns:
+        str: The sanitized page numbers string with spaces removed.
+    """
+    return page_numbers.replace(' ', '')
+
+def check_page_numbers(page_numbers: str) -> bool:
+    """
+    Checks if the page numbers are in the correct format.
+    
+    This function verifies whether the given page numbers are in the expected format 'XXXXXXX-XXXXXXX|XXXXXXX-XXXXXXX|...'.
+    
+    Args:
+        page_numbers (str): Page numbers to be checked in the format 'XXXXXXX-XXXXXXX|XXXXXXX-XXXXXXX|...'.
+        
+    Returns:
+        bool: True if all page number ranges are in the correct format, False otherwise.
+    """
+    page_number_ranges = page_numbers.split('|')
+
+    for page_number_range in page_number_ranges:
+        if not re.match(r'^\d{7}\s*-\s*\d{7}$', page_number_range):
+            return False
+    return True
+
+def get_page_numbers(page_numbers: str) -> Iterator[str]:
+    """
+    Gets individual page numbers from a string of page number ranges.
+    
+    This function takes a string of page number ranges and yields individual page numbers in the format 'XXXXXXX'.
+    
+    Args:
+        page_numbers (str): Page numbers in the format 'XXXXXXX-XXXXXXX|XXXXXXX-XXXXXXX|...'.
+        
+    Yields:
+        Iterator[str]: An iterator that generates individual page numbers.
+    """
+    # Split the range into a list of pages
+    page_number_ranges = page_numbers.split('|')
+    # Loop over every page number range
+    for page_number_range in page_number_ranges:
+        # Split the range into start and end pages
+        pages = page_number_range.split('-')
+        # Loop over every page in the range
+        for page in range(int(pages[0]), int(pages[1]) + 1):
+            # Yield the page number with leading zeros
+            page_num = str(page).zfill(7)
+            yield page_num
+
+def write_pages_to_csv(writer: csv.DictWriter, row: dict) -> None:
+    """
+    Writes page information to the CSV.
+    
+    This function generates and writes rows for individual pages associated with a Paged Content.
+    
+    Args:
+        writer (csv.DictWriter): A CSV writer object used for writing rows.
+        row (dict): A dictionary containing information about the Paged Content.
+        
+    Returns:
+        None
+    """
+    # Split the range into a list of pages
+    sanitized_page_numbers = sanitize_page_numbers(row['Associated Image #s'])
+    if not check_page_numbers(sanitized_page_numbers):
+        print(f"Error: The pattern of the page numbers for identifier {row['Identifier']} is incorrect.")
+        return
+    current_page_number = 1
+    for page_num in get_page_numbers(sanitized_page_numbers):
+        # Write the row to ingest the Page
+        writer.writerow({
+            'identifier': row['Identifier'],
+            'title': get_title(row) + ' - ' + 'Page' + str(current_page_number),
+            'model': 'Page',
+            'page_num': current_page_number,
+            'file_path': row['Folder'] + '/' + page_num + '.tif'
+            })
+        current_page_number += 1
+    
+
+def main():
+    """
+    Main function that processes Paged Content and Pages information from input CSV.
+    
+    This function reads Paged Content information from the input CSV, processes it to generate rows
+    for Paged Content and associated Pages, and writes them to an output CSV file specified in the
+    command line arguments.
+    
+    Returns:
+        None
+    """
+    # Convert the input CSV to a list of dictionaries.
+    csv_rows = csv_to_dict(sys.argv[1])
+    # Get a CSV writer object for writing to the output CSV.
+    writer = get_csv_writer()
+    # Write the field names to the first row of the CSV.
+    writer.writeheader()
+    # Loop over every row in the input CSV
+    for row in csv_rows:
+        # We first write the row to ingest the Paged Content
+        write_paged_content_row(writer, row)
+        # Then we write the rows to ingest the Pages
+        write_pages_to_csv(writer, row)
+
+main()
+
+
