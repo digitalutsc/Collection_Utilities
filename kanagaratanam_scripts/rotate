@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+
+import csv
+import os
+import sys
+import concurrent.futures
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn
+
+def csv_to_dict(csv_file: str) -> list[dict]:
+    """
+    Converts a CSV file to a list of Python dictionaries.
+    
+    Args:
+        csv_file (str): The path to the CSV file to be converted.
+        
+    Returns:
+        list[dict]: A list of dictionaries, where each dictionary represents a row
+                    from the CSV file with column names as keys and corresponding
+                    row values as values.
+    """
+    # Open the CSV file and create a CSV reader that treats the first row as column names
+    with open(csv_file, 'r', newline='') as file:
+        reader = csv.DictReader(file)
+        
+        # Convert the CSV reader to a list of dictionaries and return it
+        return list(reader)
+    
+def get_file_name(csv_row: dict) -> str:
+    """
+    From a CSV row, concatenate the "Folder" column and the "Filenumber", and append ".tif" to the result.
+
+    Args:
+        csv_row (dict): A dictionary representing a row from a CSV file.
+
+    Returns:
+        str: The file name, as described above. 
+    """
+    return csv_row['Folder'] + csv_row['Filenumber'] + '.tif'
+
+def rotate_file(filepath: str, rotation_factor: str) -> None:
+    """
+    Rotates a file by the given rotation factor in-place.
+
+    Args:
+        filepath (str): The path to the file to be rotated.
+        rotation_factor (str): The rotation factor to rotate the file by (e.g. "90L" for 90 degrees counter-clockwise).
+    """
+    # First convert the rotation factor to a number of degrees
+    # Positive rotation factors are counter-clockwise (left), negative rotation factors are clockwise (right)
+    rotation_factor = int(rotation_factor[:-1]) if rotation_factor[-1] == 'L' else -int(rotation_factor[:-1])
+
+    # Then rotate the file by the given number of degrees
+    # We use the ImageMagick convert command to do this
+    
+    # First, we construct the command to be executed
+    # The command is of the form "convert <filepath> -rotate <rotation_factor> <filepath>"
+    command = f'convert {filepath} -rotate {rotation_factor} {filepath}'
+
+    # Then we execute the command
+    os.system(command)
+
+def construct_futures(csv_rows: list[dict], executor: concurrent.futures.ThreadPoolExecutor) -> list[concurrent.futures.Future]:
+    """
+    Constructs a list of futures for rotating the files in the given list of CSV rows.
+
+    Args:
+        csv_rows (list[dict]): A list of dictionaries representing rows from a CSV file.
+        executor (concurrent.futures.ThreadPoolExecutor): A ThreadPoolExecutor object used for multithreading.
+
+    Returns:
+        list[concurrent.futures.Future]: A list of futures for rotating the files in the given list of CSV rows.
+    """
+    # We construct a list of futures for rotating the files in the given list of CSV rows
+    # We do this by submitting a future for each row to the executor
+    return [executor.submit(rotate_file, get_file_name(csv_row), csv_row['Rotation']) for csv_row in csv_rows if 'Split' not in csv_row['Rotation']]
+
+def main() -> None:
+    """
+    The main function of the script.
+    
+    This function is executed when the script is run from the command line.
+    
+    Returns:
+        None
+    """
+    # First, we get the CSV file name from the command line arguments
+    csv_file = sys.argv[1]
+
+    # Then, we get the CSV rows from the CSV file
+    csv_rows = csv_to_dict(csv_file)
+
+    # Then, we construct a ThreadPoolExecutor object for multithreading
+    executor = concurrent.futures.ThreadPoolExecutor()
+
+    # Then, we construct a list of futures for rotating the files in the given list of CSV rows
+    futures = construct_futures(csv_rows, executor)
+
+    # Then, we create a progress bar for tracking the progress of the rotation
+    with Progress(SpinnerColumn(), "[progress.description]{task.description}", BarColumn(), "[progress.percentage]{task.percentage:>3.0f}%", TimeElapsedColumn()) as progress:
+        # We create a task for each future
+        tasks = [progress.add_task("Rotating files...", total=1) for _ in futures]
+
+        # Then, we wait for the futures to complete
+        for future in concurrent.futures.as_completed(futures):
+            # We update the progress bar
+            progress.update(tasks[futures.index(future)], advance=1)
+
+    # Finally, we shut down the executor
+    executor.shutdown()
+
+main()
