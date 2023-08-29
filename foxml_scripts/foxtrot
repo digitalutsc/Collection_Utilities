@@ -471,7 +471,7 @@ def singlethreaded(return_directory: str, input_dir: str) -> None:
     """
     for zip_file in track(os.listdir(input_dir), description='Processing...'):
         if zip_file.endswith('.zip'):
-            process_container_zip(input_dir, zip_file, return_directory)
+            process_container_zip(input_dir, zip_file, return_directory, False)
 
 
 def main() -> None:
