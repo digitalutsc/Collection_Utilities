@@ -45,12 +45,12 @@ def get_xml_tree_from_zip(target_filename: str, zip_ref: zipfile.ZipFile) -> tup
     representing the XML content of the first matching file.
 
     Args:
-        target_filename (str): The name of the file to search for within the zip_ref.
-        zip_ref (zipfile.ZipFile): The ZipFile object to search within.
+        - target_filename (str): The name of the file to search for within the zip_ref.
+        - zip_ref (zipfile.ZipFile): The ZipFile object to search within.
 
     Returns:
         tuple[BytesIO, ET.ElementTree]: A tuple containing the read stream for the file and the
-        ElementTree object representing the XML content of the file.
+                                        ElementTree object representing the XML content of the file.
 
     Raises:
         FileNotFoundError: If the target_filename is not found in the zip file.
@@ -71,7 +71,7 @@ def is_foxml_managed(foxml_root: ET.ElementTree) -> bool:
     MODS datastream is managed (controlled by the repository) or not.
 
     Args:
-        foxml_root (ET.ElementTree): The root ElementTree of the FOXML document.
+        - foxml_root (ET.ElementTree): The root ElementTree of the FOXML document.
 
     Returns:
         bool: True if the MODS datastream is managed ("M" control group), False otherwise.
@@ -102,7 +102,7 @@ def set_control_group_inline(datastream_element: ET.Element) -> None:
     within the document.
 
     Args:
-        datastream_element (ET.Element): The <foxml:datastream> element to be modified.
+        - datastream_element (ET.Element): The <foxml:datastream> element to be modified.
 
     Raises:
         ValueError: If the provided datastream_element lacks a CONTROL_GROUP attribute.
@@ -125,7 +125,7 @@ def remove_content_location_from_mods_record(mods_record: ET.Element) -> None:
     from it.
 
     Args:
-        mods_record (ET.Element): The <foxml:datastreamVersion> element representing the MODS record.
+        - mods_record (ET.Element): The <foxml:datastreamVersion> element representing the MODS record.
     """
     # Find the <foxml:contentLocation> element
     content_location = mods_record.find(".//foxml:contentLocation", FOXML_NAMESPACES)
@@ -144,8 +144,8 @@ def add_xml_content_to_mods_record(mods_record: ET.Element, bag_archive: zipfile
     the XML tree for it. Finally, the XML tree is merged into the xmlContent element.
 
     Args:
-        mods_record (ET.Element): The MODS record as an ElementTree element.
-        bag_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
+        - mods_record (ET.Element): The MODS record as an ElementTree element.
+        - bag_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
 
     Raises:
         FileNotFoundError: If the specified MODS file is not found in the bag_archive.
@@ -185,8 +185,8 @@ def replace_managed_mods_with_inline(datastream_element: ET.Element, bag_archive
     making the record inline.
 
     Args:
-        datastream_element (ET.Element): The datastream element containing MODS records.
-        bag_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
+        - datastream_element (ET.Element): The datastream element containing MODS records.
+        - bag_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
 
     Raises:
         FileNotFoundError: If the specified MODS file is not found in the bag_archive.
@@ -213,8 +213,8 @@ def replace_managed_mods_with_inline_in_foxml(foxml_tree: ET.ElementTree, bag_ar
     MODS file within the bag_archive ZipFile, effectively making the record inline.
 
     Args:
-        foxml_tree (ET.ElementTree): The FOXML document as an ElementTree.
-        bag_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
+        - foxml_tree (ET.ElementTree): The FOXML document as an ElementTree.
+        - bag_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
 
     Raises:
         FileNotFoundError: If the specified MODS file is not found in the bag_archive.
@@ -237,8 +237,8 @@ def process_foxml_tree(foxml_tree: ET.ElementTree, atomzip_archive: zipfile.ZipF
     records to inline XML content, if they were not already inline.
 
     Args:
-        foxml_tree (ET.ElementTree): The FOXML document as an ElementTree.
-        atomzip_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
+        - foxml_tree (ET.ElementTree): The FOXML document as an ElementTree.
+        - atomzip_archive (zipfile.ZipFile): The ZipFile containing the BagIt archive.
 
     Raises:
         FileNotFoundError: If any of the specified MODS files are not found in the bag_archive.

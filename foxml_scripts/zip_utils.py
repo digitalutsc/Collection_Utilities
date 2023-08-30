@@ -10,8 +10,8 @@ def get_read_stream_zip_file(target_filename: str, zip_ref: zipfile.ZipFile) -> 
     and retrieve a read stream to the first matching file encountered.
 
     Args:
-        target_filename (str): The filename to locate within the zip_ref.
-        zip_ref (zipfile.ZipFile): The ZipFile object to search within.
+        - target_filename (str): The filename to locate within the zip_ref.
+        - zip_ref (zipfile.ZipFile): The ZipFile object to search within.
 
     Returns:
         Optional[BytesIO]: A read stream to the first identified matching file, or None if not found.

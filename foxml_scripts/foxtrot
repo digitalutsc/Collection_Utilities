@@ -73,7 +73,7 @@ def parse_arguments(arguments: list[str]) -> dict:
     Parse the <arguments> passed to this script via the command line and return the path of the input directory.
 
     Args:
-        arguments (list[str]): The list of arguments passed to the script.
+        - arguments (list[str]): The list of arguments passed to the script.
 
     Returns:
         dict: A dictionary containing parsed options and paths. The dictionary may contain the following keys:
@@ -141,7 +141,7 @@ def format_drush_command_from_atomzip(zip_path: str) -> str:
     Format and return a Drush command for creating an Islandora bag object.
     
     Args:
-        zip_path (str): The path of the atomzip file. Should be of the form .../COLLECTION_PID_foxml_atomzip.zip.
+        - zip_path (str): The path of the atomzip file. Should be of the form .../COLLECTION_PID_foxml_atomzip.zip.
         
     Returns:
         str: The formatted Drush command in the format 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID'.
@@ -166,7 +166,7 @@ def extract_bag_path_from_drush_command_stdout(stdout_bytes: bytes) -> Optional[
     Extract and return the path of the newly created ZIP file from the stdout of the 'drush @dsu --user=1 create-islandora-bag object COLLECTION:PID' command.
     
     Args:
-        stdout_bytes (bytes): The stdout bytes output from the Drush command.
+        - stdout_bytes (bytes): The stdout bytes output from the Drush command.
         
     Returns:
         Optional[str]: The path of the newly created ZIP file if found, or None if no path is found.
@@ -194,7 +194,7 @@ def get_bag_name_from_atomzip(atomzip_path: str) -> str:
     Extract and return the bag name from the provided atomzip file path.
     
     Args:
-        atomzip_path (str): The path of the atomzip file. Should be of the form .../COLLECTION_PID_foxml_atomzip.zip.
+        - atomzip_path (str): The path of the atomzip file. Should be of the form .../COLLECTION_PID_foxml_atomzip.zip.
         
     Returns:
         str: The name of the bag extracted from the atomzip file path.
@@ -206,8 +206,8 @@ def create_container_output_directory(return_directory: str, container_zip_name:
     Create and return the path of the directory where the FOXML files for the container will be saved.
     
     Args:
-        return_directory (str): The directory where the container zip file is located.
-        container_zip_name (str): The name of the container zip file.
+        - return_directory (str): The directory where the container zip file is located.
+        - container_zip_name (str): The name of the container zip file.
         
     Returns:
         str: The path of the directory where the FOXML files for the container will be saved.
@@ -221,7 +221,7 @@ def get_foxml_tree_drush(atomzip_name: str) -> Optional[tuple[BytesIO, ET.Elemen
     Generate an ElementTree object from an atomzip file where the FOXML is not present. The FOXML is generated with Drush.
 
     Args:
-        atomzip_name (str): The name of the atomzip file.
+        - atomzip_name (str): The name of the atomzip file.
 
     Returns:
         Optional[tuple[BytesIO, ET.ElementTree]]: A tuple containing the read stream and the ElementTree object, or None if an error occurred.
@@ -243,8 +243,8 @@ def beautify_xml(xml: str, bag_name: str) -> Optional[str]:
     Beautify the provided XML string and return it.
 
     Args:
-        xml (str): The XML string to beautify.
-        bag_name (str): The name of the bag; used for error messages.
+        - xml (str): The XML string to beautify.
+        - bag_name (str): The name of the bag; used for error messages.
 
     Returns:
         Optional[str]: The beautified XML string, or None if an error occurred.
@@ -268,9 +268,9 @@ def save_foxml_to_container_output_directory(output_directory: str, bag_name: st
     Save the provided FOXML string to the provided directory under a subdirectory with the bag name.
 
     Args:
-        output_directory (str): The directory where the FOXML files will be saved.
-        bag_name (str): The name of the bag.
-        foxml (str): The FOXML string to save.
+        - output_directory (str): The directory where the FOXML files will be saved.
+        - bag_name (str): The name of the bag.
+        - foxml (str): The FOXML string to save.
 
     Returns:
         str: The path of the saved FOXML file.
@@ -297,11 +297,11 @@ def process_atomzip(container_zip_name: str,
     and save the converted FOXML along with metadata to specified directories.
 
     Parameters:
-    - container_zip_name (str): The name of the container ZIP file.
-    - container_zip (zipfile.ZipFile): The container ZIP file object.
-    - atomzip_name (str): The name of the atomzip file within the container.
-    - container_output_directory (str): The directory where container-specific output will be saved.
-    - output_directory (str): The directory where the converted FOXML and metadata will be saved.
+        - container_zip_name (str): The name of the container ZIP file.
+        - container_zip (zipfile.ZipFile): The container ZIP file object.
+        - atomzip_name (str): The name of the atomzip file within the container.
+        - container_output_directory (str): The directory where container-specific output will be saved.
+        - output_directory (str): The directory where the converted FOXML and metadata will be saved.
 
     Returns:
         None
@@ -366,14 +366,15 @@ def process_atomzip(container_zip_name: str,
 
 
 
-def process_container_zip(master_directory: str, container_zip_name: str, output_directory: str, multithreaded: str) -> None:
+def process_container_zip(master_directory: str, container_zip_name: str, output_directory: str, multithreaded: bool) -> None:
     """
     Process a container ZIP file containing atomzip files, generate and format FOXML files, and save them to a specified directory.
 
     Args:
-        master_directory (str): The directory containing the container ZIP file.
-        container_zip_name (str): The name of the container ZIP file.
-        output_directory (str): The directory where processed FOXML files will be saved.
+        - master_directory (str): The directory containing the container ZIP file.
+        - container_zip_name (str): The name of the container ZIP file.
+        - output_directory (str): The directory where processed FOXML files will be saved.
+        - multithreaded (bool): If True, multithread the processing of atomzip files; otherwise, do not.
 
     Returns:
         None
@@ -384,6 +385,7 @@ def process_container_zip(master_directory: str, container_zip_name: str, output
 
         with zipfile.ZipFile(f'{master_directory}/{container_zip_name}', 'r') as container_zip:
             if multithreaded:
+                # We will process the atomzip files in parallel
                 atomzip_files = [name for name in container_zip.namelist() if 'data/' in name and name.endswith('_foxml_atomzip.zip')]
                 with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
                     futures = [executor.submit(process_atomzip, 
@@ -395,6 +397,7 @@ def process_container_zip(master_directory: str, container_zip_name: str, output
                     concurrent.futures.wait(futures)
                 
             else:
+                # We will process the atomzip files sequentially
                 # Loop over all file/directory names in the zip file without unzipping it
                 for name in container_zip.namelist():
                     # Check if the file matches the desired pattern (inside data directory and ends with _foxml_atomzip.zip)
@@ -413,13 +416,13 @@ def multithreaded(return_directory: str, input_dir: str, multithreaded_atomzips:
     and save them to the provided return directory. Utilizes multithreading for improved efficiency.
 
     Parameters:
-    - return_directory (str): The directory where the formatted FOXML files will be saved.
-    - input_dir (str): The directory containing container ZIP files with atomzip files to be processed.
-    - multithreaded_atomzips (bool): If True, multithread the processing of atomzip files; otherwise,
-      multithread the processing of container ZIP files.
+        - return_directory (str): The directory where the formatted FOXML files will be saved.
+        - input_dir (str): The directory containing container ZIP files with atomzip files to be processed.
+        - multithreaded_atomzips (bool): If True, multithread the processing of atomzip files; otherwise,
+          multithread the processing of container ZIP files.
 
     Returns:
-    None
+        None
 
     This function offers two modes of multithreading depending on the value of 'multithreaded_atomzips'.
     If it's True, the function will process atomzip files in parallel. If False, it will process container
