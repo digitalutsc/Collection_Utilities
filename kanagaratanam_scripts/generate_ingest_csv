@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
 
+"""
+This script generates a CSV file for ingesting Paged Content and Pages into Islandora.
+It takes a CSV file as input and generates a CSV file as output.
+The input CSV file should have the following columns:
+    - Identifier
+    - Title Subsection (English)
+    - Sub-subection (English)
+    - Folder
+    - Associated Image #s
+The output CSV file will have the following columns:
+    - identifier
+    - title
+    - model
+    - page_num
+    - file_path
+The output CSV file will have one row for each Paged Content and one row for each Page in the Paged Content.
+"""
+
 import csv
 import sys
 import re
