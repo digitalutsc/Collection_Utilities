@@ -79,21 +79,6 @@ def rotate_file(filepath: str, rotation_factor: str) -> None:
     if result.stderr != b'':
         print(Fore.RED, f'Error rotating file {filepath}. Error: {result.stderr.decode("utf-8")}', Fore.RESET)
 
-def construct_futures(csv_rows: list[dict], executor: concurrent.futures.ThreadPoolExecutor) -> list[concurrent.futures.Future]:
-    """
-    Constructs a list of futures for rotating the files in the given list of CSV rows.
-
-    Args:
-        csv_rows (list[dict]): A list of dictionaries representing rows from a CSV file.
-        executor (concurrent.futures.ThreadPoolExecutor): A ThreadPoolExecutor object used for multithreading.
-
-    Returns:
-        list[concurrent.futures.Future]: A list of futures for rotating the files in the given list of CSV rows.
-    """
-    # We construct a list of futures for rotating the files in the given list of CSV rows
-    # We do this by submitting a future for each row to the executor
-    return [executor.submit(rotate_file, get_file_name(csv_row), csv_row['Rotation']) for csv_row in csv_rows if 'Split' not in csv_row['Rotation']]
-
 def main() -> None:
     """
     The main function of the script.
