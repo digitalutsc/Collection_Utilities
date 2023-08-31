@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
 
+"""
+A script for rotating files based on a CSV file.
+
+This script takes a CSV file as input, and rotates the files in the CSV file by the rotation factor specified in the CSV file.
+
+The CSV file must have the following columns:
+    - Folder: The folder in which the file to be rotated is located.
+    - Filenumber: The filenumber of the file to be rotated.
+    - Rotation: The rotation factor to rotate the file by (e.g. "90L" for 90 degrees counter-clockwise).
+
+The CSV file must be passed as a command line argument to the script.
+
+Usage: rotate <csv_file>
+"""
+
 import csv
 import os
 import sys
+import subprocess
 import concurrent.futures
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn
 from colorama import Fore
-import subprocess
-
 
 def csv_to_dict(csv_file: str) -> list[dict]:
     """
@@ -64,7 +78,6 @@ def rotate_file(filepath: str, rotation_factor: str) -> None:
     # If there was an error, print it
     if result.stderr != b'':
         print(Fore.RED, f'Error rotating file {filepath}. Error: {result.stderr.decode("utf-8")}', Fore.RESET)
-    
 
 def construct_futures(csv_rows: list[dict], executor: concurrent.futures.ThreadPoolExecutor) -> list[concurrent.futures.Future]:
     """
