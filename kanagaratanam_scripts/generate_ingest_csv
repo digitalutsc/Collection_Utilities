@@ -186,7 +186,6 @@ def write_pages_to_csv(writer: csv.DictWriter, row: dict) -> None:
             'file_path': row['Folder'] + '/' + page_num + '.tif'
             })
         current_page_number += 1
-    
 
 def main():
     """
